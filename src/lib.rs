@@ -52,7 +52,7 @@ pub fn create_client_app(state: AppState) -> Router {
 pub fn create_service_app(state: AppState) -> Router {
     Router::new()
         .route("/mappings", get(get_all_mappings))
-        .route("/mappings/:user_hash", get(get_user_mapping))
+        .route("/mappings/{user_hash}", get(get_user_mapping))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
 }

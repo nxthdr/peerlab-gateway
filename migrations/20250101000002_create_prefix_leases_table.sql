@@ -25,5 +25,4 @@ ON prefix_leases (end_time);
 
 -- Create composite index for active leases lookup
 CREATE INDEX IF NOT EXISTS idx_prefix_leases_active
-ON prefix_leases (prefix, end_time)
-WHERE end_time > NOW();
+ON prefix_leases (prefix, end_time);

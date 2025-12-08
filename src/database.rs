@@ -121,8 +121,8 @@ impl Database {
 
         let lease = sqlx::query_as::<_, PrefixLease>(
             "INSERT INTO prefix_leases (user_hash, prefix, start_time, end_time)
-             VALUES ($1, $2, $3, $4)
-             RETURNING *",
+             VALUES ($1, $2::cidr, $3, $4)
+             RETURNING id, user_hash, prefix::text, start_time, end_time, created_at, updated_at",
         )
         .bind(user_hash)
         .bind(prefix.to_string())
@@ -144,7 +144,8 @@ impl Database {
         user_hash: &str,
     ) -> Result<Vec<PrefixLease>, sqlx::Error> {
         let leases = sqlx::query_as::<_, PrefixLease>(
-            "SELECT * FROM prefix_leases
+            "SELECT id, user_hash, prefix::text, start_time, end_time, created_at, updated_at
+             FROM prefix_leases
              WHERE user_hash = $1 AND end_time > NOW()
              ORDER BY end_time DESC",
         )
@@ -158,7 +159,8 @@ impl Database {
     /// Get all active leases (for downstream services)
     pub async fn get_all_active_leases(&self) -> Result<Vec<PrefixLease>, sqlx::Error> {
         let leases = sqlx::query_as::<_, PrefixLease>(
-            "SELECT * FROM prefix_leases
+            "SELECT id, user_hash, prefix::text, start_time, end_time, created_at, updated_at
+             FROM prefix_leases
              WHERE end_time > NOW()
              ORDER BY end_time DESC",
         )
@@ -172,7 +174,7 @@ impl Database {
     pub async fn is_prefix_leased(&self, prefix: &Ipv6Net) -> Result<bool, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM prefix_leases
-             WHERE prefix = $1 AND end_time > NOW()",
+             WHERE prefix = $1::cidr AND end_time > NOW()",
         )
         .bind(prefix.to_string())
         .fetch_one(&self.pool)
