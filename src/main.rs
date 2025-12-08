@@ -5,7 +5,11 @@ use std::net::SocketAddr;
 use tracing::{error, info, warn};
 
 use peerlab_gateway::{
-    create_app, database::{Database, DatabaseConfig}, prefix_pool::PrefixPool, AppState,
+    create_app,
+    database::{Database, DatabaseConfig},
+    pool_asns::AsnPool,
+    pool_prefixes::PrefixPool,
+    AppState,
 };
 
 /// Command line arguments for the gateway
@@ -26,6 +30,14 @@ pub struct Cli {
     /// Path to prefix pool file (one /48 prefix per line)
     #[arg(long = "prefix-pool-file", default_value = "prefixes.txt")]
     pub prefix_pool_file: String,
+
+    /// ASN pool start (inclusive)
+    #[arg(long = "asn-pool-start", default_value = "65000")]
+    pub asn_pool_start: i32,
+
+    /// ASN pool end (inclusive)
+    #[arg(long = "asn-pool-end", default_value = "65999")]
+    pub asn_pool_end: i32,
 
     /// LogTo JWKS URI for JWT validation
     #[arg(long = "logto-jwks-uri")]
@@ -75,6 +87,9 @@ async fn main() -> anyhow::Result<()> {
         warn!("LogTo issuer is not set");
     }
 
+    // Create ASN pool
+    let asn_pool = AsnPool::new(cli.asn_pool_start, cli.asn_pool_end);
+
     // Load prefix pool from file
     let prefix_pool = match PrefixPool::from_file(&cli.prefix_pool_file) {
         Ok(pool) => {
@@ -122,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
     // Create app state
     let state = AppState {
         database,
+        asn_pool,
         prefix_pool,
         logto_jwks_uri: cli.logto_jwks_uri.clone(),
         logto_issuer: cli.logto_issuer.clone(),

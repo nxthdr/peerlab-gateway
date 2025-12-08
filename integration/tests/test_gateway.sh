@@ -28,15 +28,10 @@ INITIAL_ASN=$(echo "$INITIAL_INFO" | grep -o '"asn":[0-9]*' | cut -d':' -f2 || e
 echo "   Initial ASN: ${INITIAL_ASN:-none}"
 echo ""
 
-# Test 3: Request ASN assignment
+# Test 3: Request ASN assignment (auto-assigned from pool)
 echo "[3/7] Requesting ASN assignment..."
-ASN_PAYLOAD='{
-  "asn": '"$TEST_ASN"'
-}'
 
-ASN_RESPONSE=$(curl -4 -s -X POST "$GATEWAY_URL/api/user/asn" \
-    -H "Content-Type: application/json" \
-    -d "$ASN_PAYLOAD")
+ASN_RESPONSE=$(curl -4 -s -X POST "$GATEWAY_URL/api/user/asn")
 
 ASSIGNED_ASN=$(echo "$ASN_RESPONSE" | grep -o '"asn":[0-9]*' | cut -d':' -f2)
 if [[ -z "$ASSIGNED_ASN" ]]; then

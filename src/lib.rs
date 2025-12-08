@@ -1,6 +1,7 @@
 pub mod database;
 pub mod jwt;
-pub mod prefix_pool;
+pub mod pool_asns;
+pub mod pool_prefixes;
 
 use axum::{
     extract::{Extension, State},
@@ -17,11 +18,13 @@ use tower_http::trace::TraceLayer;
 use tracing::{debug, error, warn};
 
 use database::Database;
-use prefix_pool::PrefixPool;
+use pool_asns::AsnPool;
+use pool_prefixes::PrefixPool;
 
 #[derive(Clone)]
 pub struct AppState {
     pub database: Database,
+    pub asn_pool: AsnPool,
     pub prefix_pool: PrefixPool,
     pub logto_jwks_uri: Option<String>,
     pub logto_issuer: Option<String>,
@@ -71,11 +74,7 @@ pub fn hash_user_identifier(user_id: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-// Request/Response types
-#[derive(serde::Deserialize)]
-struct RequestAsnRequest {
-    asn: i32,
-}
+// Request/Response types (ASN request no longer needs a body)
 
 #[derive(serde::Deserialize)]
 struct RequestPrefixRequest {
@@ -166,11 +165,10 @@ async fn get_user_info(
     }
 }
 
-/// Request an ASN for the user
+/// Request an ASN for the user (auto-assigned from pool)
 async fn request_asn(
     Extension(auth_info): Extension<jwt::AuthInfo>,
     State(state): State<AppState>,
-    Json(request): Json<RequestAsnRequest>,
 ) -> Result<Json<RequestAsnResponse>, (StatusCode, Json<serde_json::Value>)> {
     let user_hash = hash_user_identifier(&auth_info.sub);
 
@@ -196,21 +194,21 @@ async fn request_asn(
         }
     }
 
-    // Check if requested ASN is already assigned
-    match state.database.is_asn_assigned(request.asn).await {
-        Ok(true) => {
-            warn!("ASN {} is already assigned", request.asn);
+    // Find an available ASN from the pool (checks database for assigned ASNs)
+    let available_asn = match state.asn_pool.find_available_asn(&state.database).await {
+        Ok(Some(asn)) => asn,
+        Ok(None) => {
+            warn!("No available ASNs in the pool");
             return Err((
-                StatusCode::CONFLICT,
+                StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({
-                    "error": 409,
-                    "message": format!("ASN {} is already assigned to another user", request.asn)
+                    "error": 503,
+                    "message": "No available ASNs at this time"
                 })),
             ));
         }
-        Ok(false) => {}
         Err(err) => {
-            error!("Failed to check ASN availability: {}", err);
+            error!("Failed to find available ASN: {}", err);
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
@@ -219,12 +217,12 @@ async fn request_asn(
                 })),
             ));
         }
-    }
+    };
 
     // Assign the ASN
     match state
         .database
-        .get_or_create_user_asn(&user_hash, request.asn)
+        .get_or_create_user_asn(&user_hash, available_asn)
         .await
     {
         Ok(mapping) => {

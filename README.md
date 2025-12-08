@@ -40,14 +40,9 @@ Get user information including ASN and active prefix leases.
 ```
 
 #### `POST /api/user/asn`
-Request an ASN assignment. Once assigned, the same ASN is always returned for the user.
+Request an ASN assignment. The gateway automatically assigns an available ASN from the pool. Once assigned, the same ASN is always returned for the user.
 
-**Request:**
-```json
-{
-  "asn": 65001
-}
-```
+**Request:** No body required
 
 **Response:**
 ```json
@@ -114,6 +109,8 @@ Get mapping for a specific user.
 - `--address`: API listen address (default: `0.0.0.0:8080`)
 - `--database-url`: PostgreSQL connection URL (default: `postgresql://localhost/peerlab_gateway`)
 - `--prefix-pool-file`: Path to prefix pool file (default: `prefixes.txt`)
+- `--asn-pool-start`: ASN pool start (default: `65000`)
+- `--asn-pool-end`: ASN pool end (default: `65999`, provides 1000 ASNs)
 - `--logto-jwks-uri`: LogTo JWKS URI for JWT validation
 - `--logto-issuer`: LogTo issuer for JWT validation
 - `--bypass-jwt`: Bypass JWT validation (development only)

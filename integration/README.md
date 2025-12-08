@@ -25,10 +25,8 @@ docker compose down
 # Get user info
 curl http://localhost:8080/api/user/info | jq
 
-# Request ASN
-curl -X POST http://localhost:8080/api/user/asn \
-  -H "Content-Type: application/json" \
-  -d '{"asn": 65001}' | jq
+# Request ASN (auto-assigned from pool)
+curl -X POST http://localhost:8080/api/user/asn | jq
 
 # Request prefix lease
 curl -X POST http://localhost:8080/api/user/prefix \
