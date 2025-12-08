@@ -1,0 +1,3 @@
+# Docker volumes and runtime data
+*.log
+.env
