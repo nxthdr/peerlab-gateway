@@ -86,7 +86,10 @@ impl Database {
     }
 
     /// Get user ASN mapping
-    pub async fn get_user_asn(&self, user_hash: &str) -> Result<Option<UserAsnMapping>, sqlx::Error> {
+    pub async fn get_user_asn(
+        &self,
+        user_hash: &str,
+    ) -> Result<Option<UserAsnMapping>, sqlx::Error> {
         let mapping = sqlx::query_as::<_, UserAsnMapping>(
             "SELECT * FROM user_asn_mappings WHERE user_hash = $1",
         )
@@ -99,12 +102,11 @@ impl Database {
 
     /// Check if an ASN is already assigned
     pub async fn is_asn_assigned(&self, asn: i32) -> Result<bool, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM user_asn_mappings WHERE asn = $1",
-        )
-        .bind(asn)
-        .fetch_one(&self.pool)
-        .await?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM user_asn_mappings WHERE asn = $1")
+                .bind(asn)
+                .fetch_one(&self.pool)
+                .await?;
 
         Ok(count > 0)
     }
@@ -185,11 +187,10 @@ impl Database {
 
     /// Clean up expired leases (optional maintenance task)
     pub async fn cleanup_expired_leases(&self) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
-            "DELETE FROM prefix_leases WHERE end_time < NOW() - INTERVAL '7 days'",
-        )
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM prefix_leases WHERE end_time < NOW() - INTERVAL '7 days'")
+                .execute(&self.pool)
+                .await?;
 
         Ok(result.rows_affected())
     }
@@ -228,8 +229,6 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[tokio::test]
     async fn test_database_operations() {
         // This is a placeholder for integration tests

@@ -5,7 +5,7 @@ Tests the Peerlab Gateway with PostgreSQL for ASN assignment and prefix leasing.
 ## Quick Start
 
 ```bash
-docker compose up -d --force-recreate --renew-anon-volumes
+docker compose up -d --build --force-recreate --renew-anon-volumes
 ./tests/test_gateway.sh
 docker compose down
 ```
