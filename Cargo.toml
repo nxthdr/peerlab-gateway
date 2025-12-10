@@ -25,5 +25,5 @@ hex = "0.4"
 ipnet = "2.9"
 
 [dev-dependencies]
-axum-test = "17.0"
+axum-test = "18.0"
 tempfile = "3.0"
