@@ -1,14 +1,18 @@
+pub mod agent;
 pub mod database;
 pub mod jwt;
+pub mod logto;
 pub mod pool_asns;
 pub mod pool_prefixes;
 
 use axum::{
-    extract::{Extension, State},
-    http::StatusCode,
-    response::Json,
-    routing::{get, post},
     Router,
+    extract::{Extension, Request, State},
+    http::StatusCode,
+    middleware::Next,
+    response::Json,
+    response::Response,
+    routing::{get, post},
 };
 use hex;
 use ipnet::Ipv6Net;
@@ -17,17 +21,23 @@ use std::str::FromStr;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, warn};
 
+use agent::AgentStore;
 use database::Database;
 use pool_asns::AsnPool;
 use pool_prefixes::PrefixPool;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub agent_store: AgentStore,
+    pub agent_key: String,
     pub database: Database,
     pub asn_pool: AsnPool,
     pub prefix_pool: PrefixPool,
     pub logto_jwks_uri: Option<String>,
     pub logto_issuer: Option<String>,
+    pub logto_management_api: Option<String>,
+    pub logto_m2m_app_id: Option<String>,
+    pub logto_m2m_app_secret: Option<String>,
     pub bypass_jwt_validation: bool,
 }
 
@@ -49,12 +59,38 @@ pub fn create_client_app(state: AppState) -> Router {
 }
 
 // Service-facing API (for downstream services to query mappings)
+// Requires agent authentication
 pub fn create_service_app(state: AppState) -> Router {
     Router::new()
         .route("/mappings", get(get_all_mappings))
         .route("/mappings/{user_hash}", get(get_user_mapping))
-        .with_state(state)
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            validate_agent_key,
+        ))
         .layer(TraceLayer::new_for_http())
+}
+
+// API key validation middleware
+async fn validate_agent_key(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let auth_header = request
+        .headers()
+        .get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "));
+
+    match auth_header {
+        Some(key) if key == state.agent_key => Ok(next.run(request).await),
+        _ => {
+            warn!("Unauthorized access attempt to service API");
+            Err(StatusCode::UNAUTHORIZED)
+        }
+    }
 }
 
 // Combined app with both client and service endpoints
@@ -112,6 +148,8 @@ struct RequestPrefixResponse {
 #[derive(serde::Serialize)]
 struct UserMappingResponse {
     user_hash: String,
+    user_id: String,
+    email: Option<String>,
     asn: i32,
     prefixes: Vec<String>,
 }
@@ -219,10 +257,10 @@ async fn request_asn(
         }
     };
 
-    // Assign the ASN
+    // Assign the ASN with user_id
     match state
         .database
-        .get_or_create_user_asn(&user_hash, available_asn)
+        .get_or_create_user_asn(&user_hash, Some(&auth_info.sub), available_asn)
         .await
     {
         Ok(mapping) => {
@@ -336,14 +374,35 @@ async fn get_all_mappings(
 ) -> Result<Json<AllMappingsResponse>, (StatusCode, Json<serde_json::Value>)> {
     match state.database.get_all_user_mappings().await {
         Ok(mappings) => {
-            let response_mappings = mappings
-                .into_iter()
-                .map(|(asn_mapping, leases)| UserMappingResponse {
-                    user_hash: asn_mapping.user_hash,
+            let mut response_mappings = Vec::new();
+
+            for (asn_mapping, leases) in mappings {
+                // Fetch email from Logto if we have the necessary configuration
+                let email = if let (Some(user_id), Some(api_url), Some(app_id), Some(app_secret)) = (
+                    &asn_mapping.user_id,
+                    &state.logto_management_api,
+                    &state.logto_m2m_app_id,
+                    &state.logto_m2m_app_secret,
+                ) {
+                    match logto::get_user_email(user_id, api_url, app_id, app_secret).await {
+                        Ok(email) => email,
+                        Err(e) => {
+                            warn!("Failed to fetch email for user {}: {}", user_id, e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                response_mappings.push(UserMappingResponse {
+                    user_hash: asn_mapping.user_hash.clone(),
+                    user_id: asn_mapping.user_id.clone().unwrap_or_default(),
+                    email,
                     asn: asn_mapping.asn,
                     prefixes: leases.into_iter().map(|l| l.prefix).collect(),
-                })
-                .collect();
+                });
+            }
 
             Ok(Json(AllMappingsResponse {
                 mappings: response_mappings,
@@ -369,8 +428,28 @@ async fn get_user_mapping(
 ) -> Result<Json<UserMappingResponse>, (StatusCode, Json<serde_json::Value>)> {
     match state.database.get_user_info(&user_hash).await {
         Ok(Some((Some(asn_mapping), leases))) => {
+            // Fetch email from Logto if we have the necessary configuration
+            let email = if let (Some(user_id), Some(api_url), Some(app_id), Some(app_secret)) = (
+                &asn_mapping.user_id,
+                &state.logto_management_api,
+                &state.logto_m2m_app_id,
+                &state.logto_m2m_app_secret,
+            ) {
+                match logto::get_user_email(user_id, api_url, app_id, app_secret).await {
+                    Ok(email) => email,
+                    Err(e) => {
+                        warn!("Failed to fetch email for user {}: {}", user_id, e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
             Ok(Json(UserMappingResponse {
-                user_hash: asn_mapping.user_hash,
+                user_hash: asn_mapping.user_hash.clone(),
+                user_id: asn_mapping.user_id.clone().unwrap_or_default(),
+                email,
                 asn: asn_mapping.asn,
                 prefixes: leases.into_iter().map(|l| l.prefix).collect(),
             }))

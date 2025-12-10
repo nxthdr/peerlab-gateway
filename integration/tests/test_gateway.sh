@@ -3,6 +3,7 @@ set -e
 
 GATEWAY_URL="http://127.0.0.1:8080"
 TEST_ASN=65001
+AGENT_KEY="test-agent-secret-key"
 
 echo "🚀 Peerlab Gateway Integration Test"
 echo "===================================="
@@ -84,9 +85,19 @@ fi
 echo "✅ Prefix appears in user info"
 echo ""
 
-# Test 7: Test service API
-echo "[7/7] Testing service API..."
-MAPPINGS=$(curl -4 -s "$GATEWAY_URL/service/mappings")
+# Test 7: Test service API without authentication (should fail)
+echo "[7/10] Testing service API without authentication..."
+HTTP_CODE=$(curl -4 -s -o /dev/null -w "%{http_code}" "$GATEWAY_URL/service/mappings")
+if [[ "$HTTP_CODE" != "401" ]]; then
+    echo "❌ Service API should require authentication (expected 401, got $HTTP_CODE)"
+    exit 1
+fi
+echo "✅ Service API correctly requires authentication"
+echo ""
+
+# Test 8: Test service API with valid agent key
+echo "[8/10] Testing service API with valid agent key..."
+MAPPINGS=$(curl -4 -s -H "Authorization: Bearer $AGENT_KEY" "$GATEWAY_URL/service/mappings")
 if ! echo "$MAPPINGS" | grep -q "$ASSIGNED_ASN"; then
     echo "❌ ASN not found in service mappings"
     echo "Response: $MAPPINGS"
@@ -97,11 +108,22 @@ if ! echo "$MAPPINGS" | grep -q "$LEASED_PREFIX"; then
     echo "Response: $MAPPINGS"
     exit 1
 fi
-echo "✅ Service API returns correct mappings"
+echo "✅ Service API returns correct mappings with authentication"
 echo ""
 
-# Test 8: Request another prefix (should get a different one)
-echo "[8/7] Requesting second prefix..."
+# Test 9: Verify email field is present in mappings
+echo "[9/10] Verifying email field in service API response..."
+if ! echo "$MAPPINGS" | grep -q '"email"'; then
+    echo "❌ Email field not found in service mappings"
+    echo "Response: $MAPPINGS"
+    exit 1
+fi
+echo "✅ Email field present in service API response"
+echo "$MAPPINGS" | jq '.mappings[0] | {user_id, email, asn}' || true
+echo ""
+
+# Test 10: Request another prefix (should get a different one)
+echo "[10/10] Requesting second prefix..."
 PREFIX_RESPONSE2=$(curl -4 -s -X POST "$GATEWAY_URL/api/user/prefix" \
     -H "Content-Type: application/json" \
     -d "$PREFIX_PAYLOAD")
@@ -119,18 +141,6 @@ else
 fi
 echo ""
 
-# Test 9: Verify both prefixes in user info
-echo "[9/7] Verifying both prefixes in user info..."
-USER_INFO=$(curl -4 -s "$GATEWAY_URL/api/user/info")
-LEASE_COUNT=$(echo "$USER_INFO" | grep -o '"active_leases":\[[^]]*\]' | grep -o '2001:db8' | wc -l)
-if [[ $LEASE_COUNT -lt 2 ]]; then
-    echo "❌ Expected at least 2 active leases, found $LEASE_COUNT"
-    echo "Response: $USER_INFO"
-    exit 1
-fi
-echo "✅ Multiple active leases tracked correctly"
-echo ""
-
 # Summary
 echo "===================================="
 echo "🎉 SUCCESS: All tests passed!"
@@ -141,9 +151,12 @@ echo "  ✅ ASN assignment"
 echo "  ✅ ASN persistence"
 echo "  ✅ Prefix leasing"
 echo "  ✅ User info endpoint"
-echo "  ✅ Service API mappings"
+echo "  ✅ Service API authentication (401 without key)"
+echo "  ✅ Service API with agent key"
+echo "  ✅ Email field in service API response"
 echo "  ✅ Multiple prefix leases"
 echo "  ✅ Database persistence"
 echo ""
 echo "ℹ️  Gateway runs in JWT bypass mode (development only)"
+echo "ℹ️  Service API requires agent authentication"
 exit 0

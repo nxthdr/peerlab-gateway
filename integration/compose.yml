@@ -16,7 +16,11 @@ services:
 
   gateway:
     build: ..
-    command: -v --bypass-jwt --database-url=postgresql://peerlab_user:peerlab_password@10.0.0.50/peerlab_gateway --prefix-pool-file=/config/prefixes.txt
+    command: >
+      -v --bypass-jwt
+      --database-url=postgresql://peerlab_user:peerlab_password@10.0.0.50/peerlab_gateway
+      --prefix-pool-file=/config/prefixes.txt
+      --agent-key=test-agent-secret-key
     ports:
       - "8080:8080"
     volumes:

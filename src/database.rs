@@ -19,6 +19,7 @@ impl DatabaseConfig {
 pub struct UserAsnMapping {
     pub id: Uuid,
     pub user_hash: String,
+    pub user_id: Option<String>,
     pub asn: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -56,6 +57,7 @@ impl Database {
     pub async fn get_or_create_user_asn(
         &self,
         user_hash: &str,
+        user_id: Option<&str>,
         asn: i32,
     ) -> Result<UserAsnMapping, sqlx::Error> {
         // First try to get existing mapping
@@ -72,11 +74,12 @@ impl Database {
 
         // Create new mapping
         let mapping = sqlx::query_as::<_, UserAsnMapping>(
-            "INSERT INTO user_asn_mappings (user_hash, asn) VALUES ($1, $2)
-             ON CONFLICT (user_hash) DO UPDATE SET updated_at = NOW()
+            "INSERT INTO user_asn_mappings (user_hash, user_id, asn) VALUES ($1, $2, $3)
+             ON CONFLICT (user_hash) DO UPDATE SET updated_at = NOW(), user_id = EXCLUDED.user_id
              RETURNING *",
         )
         .bind(user_hash)
+        .bind(user_id)
         .bind(asn)
         .fetch_one(&self.pool)
         .await?;

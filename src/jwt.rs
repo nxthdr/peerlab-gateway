@@ -17,15 +17,17 @@ use crate::AppState;
 
 // JWT configuration functions to get values from AppState
 pub fn jwks_uri(state: &AppState) -> Result<String, AuthorizationError> {
-    state.logto_jwks_uri.clone().ok_or_else(|| {
-        AuthorizationError::with_status("LOGTO_JWKS_URI is not configured", 500)
-    })
+    state
+        .logto_jwks_uri
+        .clone()
+        .ok_or_else(|| AuthorizationError::with_status("LOGTO_JWKS_URI is not configured", 500))
 }
 
 pub fn issuer(state: &AppState) -> Result<String, AuthorizationError> {
-    state.logto_issuer.clone().ok_or_else(|| {
-        AuthorizationError::with_status("LOGTO_ISSUER is not configured", 500)
-    })
+    state
+        .logto_issuer
+        .clone()
+        .ok_or_else(|| AuthorizationError::with_status("LOGTO_ISSUER is not configured", 500))
 }
 
 // For configuring HTTP client with reasonable timeouts
@@ -184,7 +186,9 @@ impl JwtValidator {
         }
     }
 
-    async fn fetch_jwks(state: &AppState) -> Result<HashMap<String, DecodingKey>, AuthorizationError> {
+    async fn fetch_jwks(
+        state: &AppState,
+    ) -> Result<HashMap<String, DecodingKey>, AuthorizationError> {
         let jwks_uri = jwks_uri(state)?;
         let client = create_http_client();
 
@@ -267,7 +271,11 @@ impl JwtValidator {
         Ok(keys)
     }
 
-    pub fn validate_jwt(&self, state: &AppState, token: &str) -> Result<AuthInfo, AuthorizationError> {
+    pub fn validate_jwt(
+        &self,
+        state: &AppState,
+        token: &str,
+    ) -> Result<AuthInfo, AuthorizationError> {
         let header = decode_header(token).map_err(|e| {
             AuthorizationError::with_status(format!("Invalid token header: {}", e), 401)
         })?;
@@ -351,8 +359,9 @@ pub async fn jwt_middleware(
     // Check if we should bypass JWT validation (for development/testing)
     if state.bypass_jwt_validation {
         // Create dummy auth info for development/testing
+        // Using real Logto test user ID for email retrieval testing
         let dummy_auth = AuthInfo::new(
-            "test-user-id".to_string(),
+            "0c62g08y9atq".to_string(), // Real Logto user ID for "test" user
             Some("test@example.com".to_string()),
             Some("test-client".to_string()),
             None,

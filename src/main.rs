@@ -5,11 +5,12 @@ use std::net::SocketAddr;
 use tracing::{error, info, warn};
 
 use peerlab_gateway::{
+    AppState,
+    agent::AgentStore,
     create_app,
     database::{Database, DatabaseConfig},
     pool_asns::AsnPool,
     pool_prefixes::PrefixPool,
-    AppState,
 };
 
 /// Command line arguments for the gateway
@@ -51,6 +52,22 @@ pub struct Cli {
     #[arg(long = "bypass-jwt", default_value = "false")]
     pub bypass_jwt: bool,
 
+    /// Agent key for agent authentication
+    #[arg(long = "agent-key", default_value = "agent-key")]
+    pub agent_key: String,
+
+    /// LogTo Management API URL for fetching user emails
+    #[arg(long = "logto-management-api")]
+    pub logto_management_api: Option<String>,
+
+    /// LogTo M2M App ID for Management API access
+    #[arg(long = "logto-m2m-app-id")]
+    pub logto_m2m_app_id: Option<String>,
+
+    /// LogTo M2M App Secret for Management API access
+    #[arg(long = "logto-m2m-app-secret")]
+    pub logto_m2m_app_secret: Option<String>,
+
     /// Verbosity level
     #[clap(flatten)]
     verbose: Verbosity<InfoLevel>,
@@ -74,6 +91,9 @@ async fn main() -> anyhow::Result<()> {
 
     set_tracing(&cli)?;
 
+    // Initialize agent store
+    let agent_store = AgentStore::new();
+
     // Log JWT configuration from CLI parameters
     if let Some(ref jwks_uri) = cli.logto_jwks_uri {
         info!("LogTo JWKS URI is set to: {}", jwks_uri);
@@ -85,6 +105,16 @@ async fn main() -> anyhow::Result<()> {
         info!("LogTo issuer is set to: {}", issuer);
     } else {
         warn!("LogTo issuer is not set");
+    }
+
+    // Log Logto Management API configuration
+    if cli.logto_management_api.is_some()
+        && cli.logto_m2m_app_id.is_some()
+        && cli.logto_m2m_app_secret.is_some()
+    {
+        info!("LogTo Management API is configured for email retrieval");
+    } else {
+        warn!("LogTo Management API is not fully configured - email retrieval will be disabled");
     }
 
     // Create ASN pool
@@ -101,7 +131,10 @@ async fn main() -> anyhow::Result<()> {
             pool
         }
         Err(err) => {
-            error!("Failed to load prefix pool from {}: {}", cli.prefix_pool_file, err);
+            error!(
+                "Failed to load prefix pool from {}: {}",
+                cli.prefix_pool_file, err
+            );
             return Err(anyhow::anyhow!(
                 "Failed to load prefix pool from {}: {}",
                 cli.prefix_pool_file,
@@ -136,11 +169,16 @@ async fn main() -> anyhow::Result<()> {
 
     // Create app state
     let state = AppState {
+        agent_store,
+        agent_key: cli.agent_key.clone(),
         database,
         asn_pool,
         prefix_pool,
         logto_jwks_uri: cli.logto_jwks_uri.clone(),
         logto_issuer: cli.logto_issuer.clone(),
+        logto_management_api: cli.logto_management_api.clone(),
+        logto_m2m_app_id: cli.logto_m2m_app_id.clone(),
+        logto_m2m_app_secret: cli.logto_m2m_app_secret.clone(),
         bypass_jwt_validation: cli.bypass_jwt,
     };
 

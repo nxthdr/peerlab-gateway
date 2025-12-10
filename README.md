@@ -7,15 +7,17 @@ A Rust-based gateway service for managing IPv6 prefix leases and ASN assignments
 - **ASN Management**: Users can request and maintain ASN assignments
 - **Prefix Leasing**: Time-based IPv6 /48 prefix allocation from a configurable pool
 - **JWT Authentication**: Secure API access using LogTo JWT tokens
+- **Agent Authentication**: Service API endpoints protected with Bearer token authentication
+- **Email Retrieval**: On-demand email fetching from LogTo Management API (no email storage)
 - **PostgreSQL Storage**: Persistent storage of user mappings and lease information
-- **Service API**: Endpoints for downstream services to query user mappings
+- **Service API**: Authenticated endpoints for downstream services to query user mappings
 
 ## Architecture
 
 The service provides two main API surfaces:
 
 1. **Client API** (`/api/*`): JWT-authenticated endpoints for end users via nxthdr.dev
-2. **Service API** (`/service/*`): Unauthenticated endpoints for downstream services to query mappings
+2. **Service API** (`/service/*`): Agent-authenticated endpoints for downstream services to query mappings (requires Bearer token)
 
 ## API Endpoints
 
@@ -72,10 +74,17 @@ Request a time-limited IPv6 /48 prefix lease.
 }
 ```
 
-### Service API (No Authentication)
+### Service API (Agent Authentication Required)
+
+All service API endpoints require agent authentication using a Bearer token in the `Authorization` header.
+
+**Authentication Header:**
+```
+Authorization: Bearer <agent-key>
+```
 
 #### `GET /service/mappings`
-Get all user mappings with ASN and active prefixes.
+Get all user mappings with ASN, active prefixes, and email addresses.
 
 **Response:**
 ```json
@@ -83,12 +92,16 @@ Get all user mappings with ASN and active prefixes.
   "mappings": [
     {
       "user_hash": "abc123...",
+      "user_id": "logto-user-id",
+      "email": "user@example.com",
       "asn": 65001,
       "prefixes": ["2001:db8:1000::/48"]
     }
   ]
 }
 ```
+
+**Note:** The `email` field is fetched on-demand from LogTo Management API and is not stored in the database. It will be `null` if LogTo M2M credentials are not configured or if the user doesn't have an email.
 
 #### `GET /service/mappings/:user_hash`
 Get mapping for a specific user.
@@ -97,6 +110,8 @@ Get mapping for a specific user.
 ```json
 {
   "user_hash": "abc123...",
+  "user_id": "logto-user-id",
+  "email": "user@example.com",
   "asn": 65001,
   "prefixes": ["2001:db8:1000::/48"]
 }
@@ -106,14 +121,27 @@ Get mapping for a specific user.
 
 ### Command Line Arguments
 
+#### Basic Configuration
 - `--address`: API listen address (default: `0.0.0.0:8080`)
 - `--database-url`: PostgreSQL connection URL (default: `postgresql://localhost/peerlab_gateway`)
 - `--prefix-pool-file`: Path to prefix pool file (default: `prefixes.txt`)
 - `--asn-pool-start`: ASN pool start (default: `65000`)
 - `--asn-pool-end`: ASN pool end (default: `65999`, provides 1000 ASNs)
+
+#### JWT Authentication (Client API)
 - `--logto-jwks-uri`: LogTo JWKS URI for JWT validation
 - `--logto-issuer`: LogTo issuer for JWT validation
 - `--bypass-jwt`: Bypass JWT validation (development only)
+
+#### Agent Authentication (Service API)
+- `--agent-key`: Agent key for service API authentication (default: `agent-key`)
+
+#### Email Retrieval (Optional)
+- `--logto-management-api`: LogTo Management API URL (e.g., `https://your-instance.logto.app`)
+- `--logto-m2m-app-id`: LogTo M2M application ID for Management API access
+- `--logto-m2m-app-secret`: LogTo M2M application secret for Management API access
+
+**Note:** Email retrieval is optional. If M2M credentials are not provided, the `email` field in service API responses will be `null`.
 
 ### Prefix Pool File
 
@@ -137,7 +165,8 @@ Stores the mapping between users and their assigned ASN.
 | Column | Type | Description |
 |--------|------|-------------|
 | id | UUID | Primary key |
-| user_hash | VARCHAR(64) | SHA256 hash of user identifier |
+| user_hash | VARCHAR(64) | SHA256 hash of user identifier (unique) |
+| user_id | VARCHAR(255) | LogTo user ID for email retrieval (nullable) |
 | asn | INTEGER | Assigned ASN (unique) |
 | created_at | TIMESTAMP | Creation timestamp |
 | updated_at | TIMESTAMP | Last update timestamp |
@@ -242,11 +271,33 @@ The nxthdr.dev frontend should:
 
 ## Integration with Downstream Services
 
-Downstream services (e.g., BGP configuration generators) can:
+Downstream services (e.g., BGP configuration generators, BIRD config generators) must authenticate using an agent key.
 
-1. Call `GET /service/mappings` to get all current user-to-ASN-to-prefix mappings
+### Authentication
+
+All service API requests must include the agent key in the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer <agent-key>" \
+  https://gateway.example.com/service/mappings
+```
+
+### Usage
+
+Downstream services can:
+
+1. Call `GET /service/mappings` to get all current user-to-ASN-to-prefix mappings with email addresses
 2. Call `GET /service/mappings/:user_hash` to query specific user mappings
 3. Poll these endpoints periodically to stay synchronized with active leases
+
+### Response Data
+
+The service API returns:
+- `user_hash`: SHA256 hash of the user identifier
+- `user_id`: LogTo user ID
+- `email`: User's email address (fetched from LogTo on-demand, may be `null`)
+- `asn`: Assigned ASN
+- `prefixes`: List of active IPv6 /48 prefixes
 
 ## License
 
