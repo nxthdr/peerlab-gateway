@@ -6,9 +6,9 @@ A Rust-based gateway service for managing IPv6 prefix leases and ASN assignments
 
 - **ASN Management**: Users can request and maintain ASN assignments
 - **Prefix Leasing**: Time-based IPv6 /48 prefix allocation from a configurable pool
-- **JWT Authentication**: Secure API access using LogTo JWT tokens
+- **JWT Authentication**: Secure API access using Auth0 JWT tokens
 - **Agent Authentication**: Service API endpoints protected with Bearer token authentication
-- **Email Retrieval**: On-demand email fetching from LogTo Management API (no email storage)
+- **Email Retrieval**: On-demand email fetching from Auth0 Management API (no email storage)
 - **PostgreSQL Storage**: Persistent storage of user mappings and lease information
 - **Service API**: Authenticated endpoints for downstream services to query user mappings
 
@@ -92,7 +92,7 @@ Get all user mappings with ASN, active prefixes, and email addresses.
   "mappings": [
     {
       "user_hash": "abc123...",
-      "user_id": "logto-user-id",
+      "user_id": "auth0-user-id",
       "email": "user@example.com",
       "asn": 65001,
       "prefixes": ["2001:db8:1000::/48"]
@@ -101,7 +101,7 @@ Get all user mappings with ASN, active prefixes, and email addresses.
 }
 ```
 
-**Note:** The `email` field is fetched on-demand from LogTo Management API and is not stored in the database. It will be `null` if LogTo M2M credentials are not configured or if the user doesn't have an email.
+**Note:** The `email` field is fetched on-demand from Auth0 Management API and is not stored in the database. It will be `null` if Auth0 M2M credentials are not configured or if the user doesn't have an email.
 
 #### `GET /service/mappings/:user_hash`
 Get mapping for a specific user.
@@ -110,7 +110,7 @@ Get mapping for a specific user.
 ```json
 {
   "user_hash": "abc123...",
-  "user_id": "logto-user-id",
+  "user_id": "auth0-user-id",
   "email": "user@example.com",
   "asn": 65001,
   "prefixes": ["2001:db8:1000::/48"]
@@ -129,17 +129,17 @@ Get mapping for a specific user.
 - `--asn-pool-end`: ASN pool end (default: `65999`, provides 1000 ASNs)
 
 #### JWT Authentication (Client API)
-- `--logto-jwks-uri`: LogTo JWKS URI for JWT validation
-- `--logto-issuer`: LogTo issuer for JWT validation
+- `--auth0-jwks-uri`: Auth0 JWKS URI for JWT validation
+- `--auth0-issuer`: Auth0 issuer for JWT validation
 - `--bypass-jwt`: Bypass JWT validation (development only)
 
 #### Agent Authentication (Service API)
 - `--agent-key`: Agent key for service API authentication (default: `agent-key`)
 
 #### Email Retrieval (Optional)
-- `--logto-management-api`: LogTo Management API URL (e.g., `https://your-instance.logto.app`)
-- `--logto-m2m-app-id`: LogTo M2M application ID for Management API access
-- `--logto-m2m-app-secret`: LogTo M2M application secret for Management API access
+- `--auth0-management-api`: Auth0 Management API URL (e.g., `https://your-instance.auth0.app`)
+- `--auth0-m2m-app-id`: Auth0 M2M application ID for Management API access
+- `--auth0-m2m-app-secret`: Auth0 M2M application secret for Management API access
 
 **Note:** Email retrieval is optional. If M2M credentials are not provided, the `email` field in service API responses will be `null`.
 
@@ -166,7 +166,7 @@ Stores the mapping between users and their assigned ASN.
 |--------|------|-------------|
 | id | UUID | Primary key |
 | user_hash | VARCHAR(64) | SHA256 hash of user identifier (unique) |
-| user_id | VARCHAR(255) | LogTo user ID for email retrieval (nullable) |
+| user_id | VARCHAR(255) | Auth0 user ID for email retrieval (nullable) |
 | asn | INTEGER | Assigned ASN (unique) |
 | created_at | TIMESTAMP | Creation timestamp |
 | updated_at | TIMESTAMP | Last update timestamp |
@@ -256,15 +256,15 @@ docker run -d \
   peerlab-gateway \
   --database-url $DATABASE_URL \
   --prefix-pool-file /app/prefixes.txt \
-  --logto-jwks-uri https://your-logto.com/.well-known/jwks.json \
-  --logto-issuer https://your-logto.com
+  --auth0-jwks-uri https://your-auth0.com/.well-known/jwks.json \
+  --auth0-issuer https://your-auth0.com
 ```
 
 ## Integration with nxthdr.dev
 
 The nxthdr.dev frontend should:
 
-1. Authenticate users via LogTo and obtain JWT tokens
+1. Authenticate users via Auth0 and obtain JWT tokens
 2. Call `POST /api/user/asn` to request an ASN (if not already assigned)
 3. Call `POST /api/user/prefix` to request prefix leases with desired duration
 4. Call `GET /api/user/info` to display current ASN and active leases
@@ -294,8 +294,8 @@ Downstream services can:
 
 The service API returns:
 - `user_hash`: SHA256 hash of the user identifier
-- `user_id`: LogTo user ID
-- `email`: User's email address (fetched from LogTo on-demand, may be `null`)
+- `user_id`: Auth0 user ID
+- `email`: User's email address (fetched from Auth0 on-demand, may be `null`)
 - `asn`: Assigned ASN
 - `prefixes`: List of active IPv6 /48 prefixes
 

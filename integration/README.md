@@ -69,7 +69,7 @@ The response includes user email addresses fetched from Logto:
   "mappings": [
     {
       "user_hash": "abc123...",
-      "user_id": "logto-user-id",
+      "user_id": "auth0-user-id",
       "email": "user@example.com",
       "asn": 65001,
       "prefixes": ["2001:db8:1000::/48"]
@@ -141,7 +141,7 @@ docker compose up -d
 - **Logto Management API**: Not configured by default (email will be `null`)
   - To test email retrieval, add M2M credentials to compose.yml:
     ```yaml
-    --logto-management-api=https://3qo5br.logto.app
-    --logto-m2m-app-id=<your-app-id>
-    --logto-m2m-app-secret=<your-app-secret>
+    --auth0-management-api=https://3qo5br.auth0.app
+    --auth0-m2m-app-id=<your-app-id>
+    --auth0-m2m-app-secret=<your-app-secret>
     ```

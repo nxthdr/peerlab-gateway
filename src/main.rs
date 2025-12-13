@@ -40,13 +40,13 @@ pub struct Cli {
     #[arg(long = "asn-pool-end", default_value = "65999")]
     pub asn_pool_end: i32,
 
-    /// LogTo JWKS URI for JWT validation
-    #[arg(long = "logto-jwks-uri")]
-    pub logto_jwks_uri: Option<String>,
+    /// Auth0 JWKS URI for JWT validation
+    #[arg(long = "auth0-jwks-uri")]
+    pub auth0_jwks_uri: Option<String>,
 
-    /// LogTo issuer for JWT validation
-    #[arg(long = "logto-issuer")]
-    pub logto_issuer: Option<String>,
+    /// Auth0 issuer for JWT validation
+    #[arg(long = "auth0-issuer")]
+    pub auth0_issuer: Option<String>,
 
     /// Bypass JWT validation (for development only)
     #[arg(long = "bypass-jwt", default_value = "false")]
@@ -56,17 +56,17 @@ pub struct Cli {
     #[arg(long = "agent-key", default_value = "agent-key")]
     pub agent_key: String,
 
-    /// LogTo Management API URL for fetching user emails
-    #[arg(long = "logto-management-api")]
-    pub logto_management_api: Option<String>,
+    /// Auth0 Management API URL for fetching user emails
+    #[arg(long = "auth0-management-api")]
+    pub auth0_management_api: Option<String>,
 
-    /// LogTo M2M App ID for Management API access
-    #[arg(long = "logto-m2m-app-id")]
-    pub logto_m2m_app_id: Option<String>,
+    /// Auth0 M2M App ID for Management API access
+    #[arg(long = "auth0-m2m-app-id")]
+    pub auth0_m2m_app_id: Option<String>,
 
-    /// LogTo M2M App Secret for Management API access
-    #[arg(long = "logto-m2m-app-secret")]
-    pub logto_m2m_app_secret: Option<String>,
+    /// Auth0 M2M App Secret for Management API access
+    #[arg(long = "auth0-m2m-app-secret")]
+    pub auth0_m2m_app_secret: Option<String>,
 
     /// Verbosity level
     #[clap(flatten)]
@@ -95,26 +95,26 @@ async fn main() -> anyhow::Result<()> {
     let agent_store = AgentStore::new();
 
     // Log JWT configuration from CLI parameters
-    if let Some(ref jwks_uri) = cli.logto_jwks_uri {
-        info!("LogTo JWKS URI is set to: {}", jwks_uri);
+    if let Some(ref jwks_uri) = cli.auth0_jwks_uri {
+        info!("Auth0 JWKS URI is set to: {}", jwks_uri);
     } else {
-        warn!("LogTo JWKS URI is not set");
+        warn!("Auth0 JWKS URI is not set");
     }
 
-    if let Some(ref issuer) = cli.logto_issuer {
-        info!("LogTo issuer is set to: {}", issuer);
+    if let Some(ref issuer) = cli.auth0_issuer {
+        info!("Auth0 issuer is set to: {}", issuer);
     } else {
-        warn!("LogTo issuer is not set");
+        warn!("Auth0 issuer is not set");
     }
 
-    // Log Logto Management API configuration
-    if cli.logto_management_api.is_some()
-        && cli.logto_m2m_app_id.is_some()
-        && cli.logto_m2m_app_secret.is_some()
+    // Log Auth0 Management API configuration
+    if cli.auth0_management_api.is_some()
+        && cli.auth0_m2m_app_id.is_some()
+        && cli.auth0_m2m_app_secret.is_some()
     {
-        info!("LogTo Management API is configured for email retrieval");
+        info!("Auth0 Management API is configured for email retrieval");
     } else {
-        warn!("LogTo Management API is not fully configured - email retrieval will be disabled");
+        warn!("Auth0 Management API is not fully configured - email retrieval will be disabled");
     }
 
     // Create ASN pool
@@ -174,11 +174,11 @@ async fn main() -> anyhow::Result<()> {
         database,
         asn_pool,
         prefix_pool,
-        logto_jwks_uri: cli.logto_jwks_uri.clone(),
-        logto_issuer: cli.logto_issuer.clone(),
-        logto_management_api: cli.logto_management_api.clone(),
-        logto_m2m_app_id: cli.logto_m2m_app_id.clone(),
-        logto_m2m_app_secret: cli.logto_m2m_app_secret.clone(),
+        auth0_jwks_uri: cli.auth0_jwks_uri.clone(),
+        auth0_issuer: cli.auth0_issuer.clone(),
+        auth0_management_api: cli.auth0_management_api.clone(),
+        auth0_m2m_app_id: cli.auth0_m2m_app_id.clone(),
+        auth0_m2m_app_secret: cli.auth0_m2m_app_secret.clone(),
         bypass_jwt_validation: cli.bypass_jwt,
     };
 
