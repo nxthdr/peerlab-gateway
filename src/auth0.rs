@@ -19,14 +19,13 @@ struct TokenResponse {
 }
 
 #[derive(Debug, Deserialize)]
-struct LogtoUser {
+struct Auth0User {
     #[allow(dead_code)]
-    pub id: String,
-    #[serde(rename = "primaryEmail")]
-    pub primary_email: Option<String>,
+    pub user_id: String,
+    pub email: Option<String>,
 }
 
-/// Fetch user email from Logto Management API
+/// Fetch user email from Auth0 Management API
 pub async fn get_user_email(
     user_id: &str,
     management_api_url: &str,
@@ -40,14 +39,14 @@ pub async fn get_user_email(
     let client = reqwest::Client::new();
     let user_url = format!("{}/api/users/{}", management_api_url, user_id);
 
-    debug!("Fetching user details from Logto: {}", user_url);
+    debug!("Fetching user details from Auth0: {}", user_url);
 
     let response = client
         .get(&user_url)
         .header("Authorization", format!("Bearer {}", token))
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch user from Logto: {}", e))?;
+        .map_err(|e| format!("Failed to fetch user from Auth0: {}", e))?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -55,19 +54,19 @@ pub async fn get_user_email(
             .text()
             .await
             .unwrap_or_else(|_| "Unknown error".to_string());
-        error!("Logto API returned error {}: {}", status, error_text);
-        return Err(format!("Logto API error: {} - {}", status, error_text));
+        error!("Auth0 API returned error {}: {}", status, error_text);
+        return Err(format!("Auth0 API error: {} - {}", status, error_text));
     }
 
-    let user: LogtoUser = response
+    let user: Auth0User = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse Logto user response: {}", e))?;
+        .map_err(|e| format!("Failed to parse Auth0 user response: {}", e))?;
 
-    Ok(user.primary_email)
+    Ok(user.email)
 }
 
-/// Get M2M access token for Logto Management API
+/// Get M2M access token for Auth0 Management API
 async fn get_m2m_token(
     management_api_url: &str,
     app_id: &str,
@@ -80,7 +79,7 @@ async fn get_m2m_token(
         .trim_end_matches('/');
     let token_url = format!("{}/oidc/token", base_url);
 
-    debug!("Requesting M2M token from Logto: {}", token_url);
+    debug!("Requesting M2M token from Auth0: {}", token_url);
 
     let params = [
         ("grant_type", "client_credentials"),

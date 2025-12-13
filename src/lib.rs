@@ -1,7 +1,7 @@
 pub mod agent;
+pub mod auth0;
 pub mod database;
 pub mod jwt;
-pub mod logto;
 pub mod pool_asns;
 pub mod pool_prefixes;
 
@@ -33,11 +33,11 @@ pub struct AppState {
     pub database: Database,
     pub asn_pool: AsnPool,
     pub prefix_pool: PrefixPool,
-    pub logto_jwks_uri: Option<String>,
-    pub logto_issuer: Option<String>,
-    pub logto_management_api: Option<String>,
-    pub logto_m2m_app_id: Option<String>,
-    pub logto_m2m_app_secret: Option<String>,
+    pub auth0_jwks_uri: Option<String>,
+    pub auth0_issuer: Option<String>,
+    pub auth0_management_api: Option<String>,
+    pub auth0_m2m_app_id: Option<String>,
+    pub auth0_m2m_app_secret: Option<String>,
     pub bypass_jwt_validation: bool,
 }
 
@@ -377,14 +377,14 @@ async fn get_all_mappings(
             let mut response_mappings = Vec::new();
 
             for (asn_mapping, leases) in mappings {
-                // Fetch email from Logto if we have the necessary configuration
+                // Fetch email from Auth0 if we have the necessary configuration
                 let email = if let (Some(user_id), Some(api_url), Some(app_id), Some(app_secret)) = (
                     &asn_mapping.user_id,
-                    &state.logto_management_api,
-                    &state.logto_m2m_app_id,
-                    &state.logto_m2m_app_secret,
+                    &state.auth0_management_api,
+                    &state.auth0_m2m_app_id,
+                    &state.auth0_m2m_app_secret,
                 ) {
-                    match logto::get_user_email(user_id, api_url, app_id, app_secret).await {
+                    match auth0::get_user_email(user_id, api_url, app_id, app_secret).await {
                         Ok(email) => email,
                         Err(e) => {
                             warn!("Failed to fetch email for user {}: {}", user_id, e);
@@ -428,14 +428,14 @@ async fn get_user_mapping(
 ) -> Result<Json<UserMappingResponse>, (StatusCode, Json<serde_json::Value>)> {
     match state.database.get_user_info(&user_hash).await {
         Ok(Some((Some(asn_mapping), leases))) => {
-            // Fetch email from Logto if we have the necessary configuration
+            // Fetch email from Auth0 if we have the necessary configuration
             let email = if let (Some(user_id), Some(api_url), Some(app_id), Some(app_secret)) = (
                 &asn_mapping.user_id,
-                &state.logto_management_api,
-                &state.logto_m2m_app_id,
-                &state.logto_m2m_app_secret,
+                &state.auth0_management_api,
+                &state.auth0_m2m_app_id,
+                &state.auth0_m2m_app_secret,
             ) {
-                match logto::get_user_email(user_id, api_url, app_id, app_secret).await {
+                match auth0::get_user_email(user_id, api_url, app_id, app_secret).await {
                     Ok(email) => email,
                     Err(e) => {
                         warn!("Failed to fetch email for user {}: {}", user_id, e);
