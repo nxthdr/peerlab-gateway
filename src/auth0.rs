@@ -37,7 +37,9 @@ pub async fn get_user_email(
 
     // Fetch user details
     let client = reqwest::Client::new();
-    let user_url = format!("{}/api/v2/users/{}", management_api_url, user_id);
+    // URL-encode the user_id since it may contain special characters like |
+    let encoded_user_id = urlencoding::encode(user_id);
+    let user_url = format!("{}/api/v2/users/{}", management_api_url, encoded_user_id);
 
     debug!("Fetching user details from Auth0: {}", user_url);
 
