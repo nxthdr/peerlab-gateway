@@ -92,6 +92,7 @@ async fn get_m2m_token(
         ("client_id", app_id),
         ("client_secret", app_secret),
         ("audience", audience.as_str()),
+        ("scope", "read:users"),
     ];
 
     let response = client
