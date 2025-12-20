@@ -90,7 +90,7 @@ async fn get_m2m_token(
 
     let response = client
         .post(&token_url)
-        .json(&params)
+        .form(&params)
         .send()
         .await
         .map_err(|e| format!("Failed to request M2M token: {}", e))?;
