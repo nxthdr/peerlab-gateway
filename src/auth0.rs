@@ -77,17 +77,21 @@ async fn get_m2m_token(
     let client = reqwest::Client::new();
     // Extract base URL from management API URL (remove /api if present)
     let base_url = management_api_url
+        .trim_end_matches("/api/v2")
+        .trim_end_matches("/api/v2/")
         .trim_end_matches("/api")
         .trim_end_matches('/');
     let token_url = format!("{}/oauth/token", base_url);
+    let audience = format!("{}/api/v2/", base_url);
 
     debug!("Requesting M2M token from Auth0: {}", token_url);
+    debug!("Using audience: {}", audience);
 
     let params = [
         ("grant_type", "client_credentials"),
         ("client_id", app_id),
         ("client_secret", app_secret),
-        ("audience", &format!("{}/api/v2/", base_url)),
+        ("audience", audience.as_str()),
     ];
 
     let response = client
