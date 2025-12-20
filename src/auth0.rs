@@ -77,20 +77,20 @@ async fn get_m2m_token(
     let base_url = management_api_url
         .trim_end_matches("/api")
         .trim_end_matches('/');
-    let token_url = format!("{}/oidc/token", base_url);
+    let token_url = format!("{}/oauth/token", base_url);
 
     debug!("Requesting M2M token from Auth0: {}", token_url);
 
     let params = [
         ("grant_type", "client_credentials"),
-        ("resource", &format!("{}/api", base_url)),
-        ("scope", "all"),
+        ("client_id", app_id),
+        ("client_secret", app_secret),
+        ("audience", &format!("{}/api/v2/", base_url)),
     ];
 
     let response = client
         .post(&token_url)
-        .basic_auth(app_id, Some(app_secret))
-        .form(&params)
+        .json(&params)
         .send()
         .await
         .map_err(|e| format!("Failed to request M2M token: {}", e))?;
@@ -102,7 +102,7 @@ async fn get_m2m_token(
             .await
             .unwrap_or_else(|_| "Unknown error".to_string());
         error!(
-            "Logto token endpoint returned error {}: {}",
+            "Auth0 token endpoint returned error {}: {}",
             status, error_text
         );
         return Err(format!(
