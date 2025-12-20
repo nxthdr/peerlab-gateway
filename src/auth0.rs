@@ -87,17 +87,17 @@ async fn get_m2m_token(
     debug!("Requesting M2M token from Auth0: {}", token_url);
     debug!("Using audience: {}", audience);
 
-    let params = [
-        ("grant_type", "client_credentials"),
-        ("client_id", app_id),
-        ("client_secret", app_secret),
-        ("audience", audience.as_str()),
-        ("scope", "read:users"),
-    ];
+    let body = serde_json::json!({
+        "grant_type": "client_credentials",
+        "client_id": app_id,
+        "client_secret": app_secret,
+        "audience": audience,
+    });
 
     let response = client
         .post(&token_url)
-        .form(&params)
+        .header("content-type", "application/json")
+        .json(&body)
         .send()
         .await
         .map_err(|e| format!("Failed to request M2M token: {}", e))?;
