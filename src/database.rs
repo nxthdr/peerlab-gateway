@@ -21,6 +21,7 @@ pub struct UserAsnMapping {
     pub user_hash: String,
     pub user_id: Option<String>,
     pub asn: i32,
+    pub max_leases: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -72,7 +73,7 @@ impl Database {
             return Ok(mapping);
         }
 
-        // Create new mapping
+        // Create new mapping (max_leases will use database DEFAULT 1)
         let mapping = sqlx::query_as::<_, UserAsnMapping>(
             "INSERT INTO user_asn_mappings (user_hash, user_id, asn) VALUES ($1, $2, $3)
              ON CONFLICT (user_hash) DO UPDATE SET updated_at = NOW(), user_id = EXCLUDED.user_id
@@ -84,7 +85,10 @@ impl Database {
         .fetch_one(&self.pool)
         .await?;
 
-        debug!("Created ASN mapping for user {}: ASN {}", user_hash, asn);
+        debug!(
+            "Created ASN mapping for user {}: ASN {} (max_leases from DB default)",
+            user_hash, asn
+        );
         Ok(mapping)
     }
 
@@ -186,6 +190,35 @@ impl Database {
         .await?;
 
         Ok(count > 0)
+    }
+
+    /// Count active leases for a user
+    pub async fn count_active_user_leases(&self, user_hash: &str) -> Result<i64, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM prefix_leases
+             WHERE user_hash = $1 AND end_time > NOW()",
+        )
+        .bind(user_hash)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count)
+    }
+
+    /// Delete a specific prefix lease for a user
+    pub async fn delete_prefix_lease(
+        &self,
+        user_hash: &str,
+        prefix: &Ipv6Net,
+    ) -> Result<bool, sqlx::Error> {
+        let result =
+            sqlx::query("DELETE FROM prefix_leases WHERE user_hash = $1 AND prefix = $2::cidr")
+                .bind(user_hash)
+                .bind(prefix.to_string())
+                .execute(&self.pool)
+                .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     /// Clean up expired leases (optional maintenance task)

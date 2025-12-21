@@ -47,6 +47,10 @@ pub fn create_client_app(state: AppState) -> Router {
         .route("/user/info", get(get_user_info))
         .route("/user/asn", post(request_asn))
         .route("/user/prefix", post(request_prefix))
+        .route(
+            "/user/prefix/{prefix}",
+            axum::routing::delete(revoke_prefix),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             jwt::jwt_middleware,
@@ -121,6 +125,7 @@ struct RequestPrefixRequest {
 struct UserInfoResponse {
     user_hash: String,
     asn: Option<i32>,
+    max_leases: Option<i32>,
     active_leases: Vec<PrefixLeaseResponse>,
 }
 
@@ -181,13 +186,15 @@ async fn get_user_info(
 
             Ok(Json(UserInfoResponse {
                 user_hash,
-                asn: asn_mapping.map(|m| m.asn),
+                asn: asn_mapping.as_ref().map(|m| m.asn),
+                max_leases: asn_mapping.map(|m| m.max_leases),
                 active_leases,
             }))
         }
         Ok(None) => Ok(Json(UserInfoResponse {
             user_hash,
             asn: None,
+            max_leases: None,
             active_leases: Vec::new(),
         })),
         Err(err) => {
@@ -257,7 +264,7 @@ async fn request_asn(
         }
     };
 
-    // Assign the ASN with user_id
+    // Assign the ASN with user_id (max_leases will use database default)
     match state
         .database
         .get_or_create_user_asn(&user_hash, Some(&auth_info.sub), available_asn)
@@ -283,6 +290,58 @@ async fn request_asn(
     }
 }
 
+/// Revoke a prefix lease for the user
+async fn revoke_prefix(
+    Extension(auth_info): Extension<jwt::AuthInfo>,
+    State(state): State<AppState>,
+    axum::extract::Path(prefix): axum::extract::Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    let user_hash = hash_user_identifier(&auth_info.sub);
+
+    // Parse the prefix
+    let prefix_net = match Ipv6Net::from_str(&prefix) {
+        Ok(p) => p,
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": 400,
+                    "message": "Invalid prefix format"
+                })),
+            ));
+        }
+    };
+
+    // Delete the prefix lease
+    match state
+        .database
+        .delete_prefix_lease(&user_hash, &prefix_net)
+        .await
+    {
+        Ok(true) => {
+            debug!("Revoked prefix lease {} for user {}", prefix, user_hash);
+            Ok(StatusCode::NO_CONTENT)
+        }
+        Ok(false) => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": 404,
+                "message": "Prefix lease not found or already expired"
+            })),
+        )),
+        Err(err) => {
+            error!("Failed to revoke prefix lease: {}", err);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": 500,
+                    "message": "Failed to revoke prefix lease"
+                })),
+            ))
+        }
+    }
+}
+
 /// Request a prefix lease for the user
 async fn request_prefix(
     Extension(auth_info): Extension<jwt::AuthInfo>,
@@ -298,6 +357,55 @@ async fn request_prefix(
             Json(serde_json::json!({
                 "error": 400,
                 "message": "Duration must be between 1 and 24 hours"
+            })),
+        ));
+    }
+
+    // Get user's ASN mapping to check max_leases
+    let user_mapping = match state.database.get_user_asn(&user_hash).await {
+        Ok(Some(mapping)) => mapping,
+        Ok(None) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": 400,
+                    "message": "You need an ASN before requesting a prefix"
+                })),
+            ));
+        }
+        Err(err) => {
+            error!("Failed to get user ASN mapping: {}", err);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": 500,
+                    "message": "Failed to check user permissions"
+                })),
+            ));
+        }
+    };
+
+    // Check if user has reached their lease limit
+    let current_lease_count = match state.database.count_active_user_leases(&user_hash).await {
+        Ok(count) => count,
+        Err(err) => {
+            error!("Failed to count user leases: {}", err);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": 500,
+                    "message": "Failed to check lease limit"
+                })),
+            ));
+        }
+    };
+
+    if current_lease_count >= user_mapping.max_leases as i64 {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": 403,
+                "message": format!("Maximum lease limit reached ({}/{}). Please revoke an existing lease before requesting a new one.", current_lease_count, user_mapping.max_leases)
             })),
         ));
     }
