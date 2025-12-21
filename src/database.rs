@@ -33,6 +33,7 @@ pub struct PrefixLease {
     pub prefix: String,
     pub start_time: DateTime<Utc>,
     pub end_time: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -131,7 +132,7 @@ impl Database {
         let lease = sqlx::query_as::<_, PrefixLease>(
             "INSERT INTO prefix_leases (user_hash, prefix, start_time, end_time)
              VALUES ($1, $2::cidr, $3, $4)
-             RETURNING id, user_hash, prefix::text, start_time, end_time, created_at, updated_at",
+             RETURNING id, user_hash, prefix::text, start_time, end_time, revoked_at, created_at, updated_at",
         )
         .bind(user_hash)
         .bind(prefix.to_string())
@@ -147,15 +148,15 @@ impl Database {
         Ok(lease)
     }
 
-    /// Get active prefix leases for a user
+    /// Get active prefix leases for a user (not expired and not revoked)
     pub async fn get_active_user_leases(
         &self,
         user_hash: &str,
     ) -> Result<Vec<PrefixLease>, sqlx::Error> {
         let leases = sqlx::query_as::<_, PrefixLease>(
-            "SELECT id, user_hash, prefix::text, start_time, end_time, created_at, updated_at
+            "SELECT id, user_hash, prefix::text, start_time, end_time, revoked_at, created_at, updated_at
              FROM prefix_leases
-             WHERE user_hash = $1 AND end_time > NOW()
+             WHERE user_hash = $1 AND end_time > NOW() AND revoked_at IS NULL
              ORDER BY end_time DESC",
         )
         .bind(user_hash)
@@ -165,12 +166,12 @@ impl Database {
         Ok(leases)
     }
 
-    /// Get all active leases (for downstream services)
+    /// Get all active leases (for downstream services, not expired and not revoked)
     pub async fn get_all_active_leases(&self) -> Result<Vec<PrefixLease>, sqlx::Error> {
         let leases = sqlx::query_as::<_, PrefixLease>(
-            "SELECT id, user_hash, prefix::text, start_time, end_time, created_at, updated_at
+            "SELECT id, user_hash, prefix::text, start_time, end_time, revoked_at, created_at, updated_at
              FROM prefix_leases
-             WHERE end_time > NOW()
+             WHERE end_time > NOW() AND revoked_at IS NULL
              ORDER BY end_time DESC",
         )
         .fetch_all(&self.pool)
@@ -179,11 +180,11 @@ impl Database {
         Ok(leases)
     }
 
-    /// Check if a prefix is currently leased
+    /// Check if a prefix is currently leased (not expired and not revoked)
     pub async fn is_prefix_leased(&self, prefix: &Ipv6Net) -> Result<bool, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM prefix_leases
-             WHERE prefix = $1::cidr AND end_time > NOW()",
+             WHERE prefix = $1::cidr AND end_time > NOW() AND revoked_at IS NULL",
         )
         .bind(prefix.to_string())
         .fetch_one(&self.pool)
@@ -192,11 +193,11 @@ impl Database {
         Ok(count > 0)
     }
 
-    /// Count active leases for a user
+    /// Count active leases for a user (not expired and not revoked)
     pub async fn count_active_user_leases(&self, user_hash: &str) -> Result<i64, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM prefix_leases
-             WHERE user_hash = $1 AND end_time > NOW()",
+             WHERE user_hash = $1 AND end_time > NOW() AND revoked_at IS NULL",
         )
         .bind(user_hash)
         .fetch_one(&self.pool)
@@ -205,18 +206,21 @@ impl Database {
         Ok(count)
     }
 
-    /// Delete a specific prefix lease for a user
+    /// Soft delete a specific prefix lease for a user by setting revoked_at
     pub async fn delete_prefix_lease(
         &self,
         user_hash: &str,
         prefix: &Ipv6Net,
     ) -> Result<bool, sqlx::Error> {
-        let result =
-            sqlx::query("DELETE FROM prefix_leases WHERE user_hash = $1 AND prefix = $2::cidr")
-                .bind(user_hash)
-                .bind(prefix.to_string())
-                .execute(&self.pool)
-                .await?;
+        let result = sqlx::query(
+            "UPDATE prefix_leases
+             SET revoked_at = NOW(), updated_at = NOW()
+             WHERE user_hash = $1 AND prefix = $2::cidr AND revoked_at IS NULL",
+        )
+        .bind(user_hash)
+        .bind(prefix.to_string())
+        .execute(&self.pool)
+        .await?;
 
         Ok(result.rows_affected() > 0)
     }

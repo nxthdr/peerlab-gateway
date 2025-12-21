@@ -405,7 +405,7 @@ async fn request_prefix(
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({
                 "error": 403,
-                "message": format!("Maximum lease limit reached ({}/{}). Please revoke an existing lease before requesting a new one.", current_lease_count, user_mapping.max_leases)
+                "message": "Maximum lease limit reached."
             })),
         ));
     }
