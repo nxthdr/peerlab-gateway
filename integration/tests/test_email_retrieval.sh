@@ -1,12 +1,12 @@
 #!/bin/bash
-# Small test component to verify Logto email retrieval functionality
+# Small test component to verify Auth0 email retrieval functionality
 
 set -e
 
 GATEWAY_URL="http://127.0.0.1:8080"
 AGENT_KEY="test-agent-secret-key"
 
-echo "📧 Logto Email Retrieval Test"
+echo "📧 Auth0 Email Retrieval Test"
 echo "============================="
 echo ""
 
@@ -35,7 +35,7 @@ echo "✅ Mappings fetched successfully"
 echo ""
 
 # Step 3: Verify email field and display user info
-echo "[3/3] Verifying email retrieval from Logto..."
+echo "[3/3] Verifying email retrieval from Auth0..."
 echo ""
 echo "📋 User Mapping Details:"
 echo "----------------------"
@@ -66,12 +66,12 @@ EMAIL=$(echo "$MAPPINGS" | jq -r '.mappings[0].email')
 if [[ "$EMAIL" == "null" ]] || [[ -z "$EMAIL" ]]; then
     echo ""
     echo "⚠️  Note: Email is null - this is expected if:"
-    echo "   - The user doesn't have an email in Logto"
-    echo "   - The Logto M2M credentials are incorrect"
+    echo "   - The user doesn't have an email in Auth0"
+    echo "   - The Auth0 M2M credentials are incorrect"
     echo "   - The user_id is not set in the database"
 else
     echo ""
-    echo "🎉 SUCCESS: Email retrieved from Logto: $EMAIL"
+    echo "🎉 SUCCESS: Email retrieved from Auth0: $EMAIL"
 fi
 
 echo ""

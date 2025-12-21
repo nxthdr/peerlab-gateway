@@ -1,5 +1,5 @@
 -- Migration to add user_id column to user_asn_mappings table
--- This stores the original Logto user ID for email retrieval
+-- This stores the original Auth0 user ID for email retrieval
 
 ALTER TABLE user_asn_mappings
 ADD COLUMN IF NOT EXISTS user_id VARCHAR(255);

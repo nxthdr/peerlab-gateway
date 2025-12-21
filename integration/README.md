@@ -12,7 +12,7 @@ docker compose down
 
 ### Test Email Retrieval Only
 
-To specifically test the Logto email retrieval feature:
+To specifically test the Auth0 email retrieval feature:
 
 ```bash
 docker compose up -d --build --force-recreate --renew-anon-volumes
@@ -28,7 +28,7 @@ docker compose down
 - User info endpoint
 - Service API authentication (requires agent key)
 - Service API for downstream services
-- Email retrieval from Logto Management API
+- Email retrieval from Auth0 Management API
 - Database persistence
 
 ## Manual Testing
@@ -63,7 +63,7 @@ curl -H "Authorization: Bearer test-agent-secret-key" \
   http://localhost:8080/service/mappings | jq
 ```
 
-The response includes user email addresses fetched from Logto:
+The response includes user email addresses fetched from Auth0:
 ```json
 {
   "mappings": [
@@ -78,11 +78,11 @@ The response includes user email addresses fetched from Logto:
 }
 ```
 
-**Note**: In JWT bypass mode (used for integration tests), the `user_id` is set to `"test-user-id"` which doesn't exist in Logto, so the email will be `null`. To test email retrieval with real data:
+**Note**: In JWT bypass mode (used for integration tests), the `user_id` is set to `"test-user-id"` which doesn't exist in Auth0, so the email will be `null`. To test email retrieval with real data:
 
 1. Disable JWT bypass mode
 2. Use a real JWT token from a logged-in user
-3. The user's email will be fetched from Logto on-demand
+3. The user's email will be fetched from Auth0 on-demand
 
 Example with real JWT:
 ```bash
@@ -138,7 +138,7 @@ docker compose up -d
 - **Test prefixes**: 2001:db8:1000::/48 - 1009::/48
 - **JWT bypass mode** enabled (dev only)
 - **Agent key**: `test-agent-secret-key`
-- **Logto Management API**: Not configured by default (email will be `null`)
+- **Auth0 Management API**: Not configured by default (email will be `null`)
   - To test email retrieval, add M2M credentials to compose.yml:
     ```yaml
     --auth0-management-api=https://3qo5br.auth0.app
