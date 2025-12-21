@@ -1,6 +1,6 @@
-# Peerlab Gateway
+# PeerLab Gateway
 
-A Rust-based gateway service for managing IPv6 prefix leases and ASN assignments for the Peerlab project. This service allows authenticated users to request ASN assignments and time-limited IPv6 /48 prefix leases, and provides endpoints for downstream services to query user-to-prefix mappings.
+A Rust-based gateway service for managing IPv6 prefix leases and ASN assignments for the PeerLab project. This service allows authenticated users to request ASN assignments and time-limited IPv6 /48 prefix leases, and provides endpoints for downstream services to query user-to-prefix mappings.
 
 ## Features
 
