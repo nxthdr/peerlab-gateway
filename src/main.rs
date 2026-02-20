@@ -86,6 +86,10 @@ fn set_tracing(cli: &Cli) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install ring crypto provider");
+
     // Parse command line arguments
     let cli = Cli::parse();
 
