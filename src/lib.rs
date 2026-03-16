@@ -16,6 +16,7 @@ use axum::{
 };
 use hex;
 use ipnet::Ipv6Net;
+use metrics::counter;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use tower_http::trace::TraceLayer;
@@ -271,6 +272,7 @@ async fn request_asn(
         .await
     {
         Ok(mapping) => {
+            counter!("peerlab_gateway_asn_assignments_total").increment(1);
             debug!("Assigned ASN {} to user {}", mapping.asn, user_hash);
             Ok(Json(RequestAsnResponse {
                 asn: mapping.asn,
@@ -319,6 +321,7 @@ async fn revoke_prefix(
         .await
     {
         Ok(true) => {
+            counter!("peerlab_gateway_prefix_leases_revoked_total").increment(1);
             debug!("Revoked prefix lease {} for user {}", prefix, user_hash);
             Ok(StatusCode::NO_CONTENT)
         }
@@ -452,6 +455,7 @@ async fn request_prefix(
         .await
     {
         Ok(lease) => {
+            counter!("peerlab_gateway_prefix_leases_created_total").increment(1);
             debug!(
                 "Created prefix lease {} for user {} until {}",
                 lease.prefix, user_hash, lease.end_time

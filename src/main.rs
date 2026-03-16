@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
+use metrics_exporter_prometheus::PrometheusBuilder;
 use std::net::SocketAddr;
 use tracing::{error, info, warn};
 
@@ -68,6 +69,10 @@ pub struct Cli {
     #[arg(long = "auth0-m2m-app-secret")]
     pub auth0_m2m_app_secret: Option<String>,
 
+    /// Metrics listen address
+    #[arg(long = "metrics-address", default_value = "0.0.0.0:9090")]
+    pub metrics_address: String,
+
     /// Verbosity level
     #[clap(flatten)]
     verbose: Verbosity<InfoLevel>,
@@ -84,12 +89,41 @@ fn set_tracing(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
+fn set_metrics(metrics_address: SocketAddr) {
+    let prom_builder = PrometheusBuilder::new();
+    prom_builder
+        .with_http_listener(metrics_address)
+        .install()
+        .expect("Failed to install Prometheus metrics exporter");
+
+    metrics::describe_counter!(
+        "peerlab_gateway_asn_assignments_total",
+        "Total number of ASN assignments"
+    );
+    metrics::describe_counter!(
+        "peerlab_gateway_prefix_leases_created_total",
+        "Total number of prefix leases created"
+    );
+    metrics::describe_counter!(
+        "peerlab_gateway_prefix_leases_revoked_total",
+        "Total number of prefix leases revoked"
+    );
+    metrics::describe_counter!(
+        "peerlab_gateway_http_requests_total",
+        "Total number of HTTP requests"
+    );
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Parse command line arguments
     let cli = Cli::parse();
 
     set_tracing(&cli)?;
+
+    let metrics_addr: SocketAddr = cli.metrics_address.parse()?;
+    set_metrics(metrics_addr);
+    info!("Metrics server listening on {}", metrics_addr);
 
     // Initialize agent store
     let agent_store = AgentStore::new();
