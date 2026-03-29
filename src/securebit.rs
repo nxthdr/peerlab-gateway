@@ -47,6 +47,14 @@ impl SecurebitClient {
         }
     }
 
+    /// Warm the ROA cache by fetching from Securebit. Call once after construction.
+    pub async fn warm_cache(&self) {
+        match self.fetch_and_cache().await {
+            Ok(roas) => info!("ROA cache warmed with {} entries", roas.len()),
+            Err(err) => warn!("Failed to warm ROA cache: {err}"),
+        }
+    }
+
     /// Build a fresh HTTP client with cookie store for a single session.
     fn build_http(&self) -> Result<Client> {
         Client::builder()

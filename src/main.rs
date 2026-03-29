@@ -171,11 +171,13 @@ async fn main() -> anyhow::Result<()> {
         cli.securebit_origin_asn,
     ) {
         info!("Securebit RPKI management is configured (origin ASN: AS{origin_asn})");
-        Some(SecurebitClient::new(
+        let client = SecurebitClient::new(
             email.clone(),
             password.clone(),
             origin_asn,
-        ))
+        );
+        client.warm_cache().await;
+        Some(client)
     } else {
         warn!("Securebit RPKI management is not configured - ROA automation will be disabled");
         None
