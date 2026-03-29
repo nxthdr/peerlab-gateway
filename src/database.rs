@@ -225,6 +225,25 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Get a specific active prefix lease for a user
+    pub async fn get_active_prefix_lease(
+        &self,
+        user_hash: &str,
+        prefix: &Ipv6Net,
+    ) -> Result<Option<PrefixLease>, sqlx::Error> {
+        let lease = sqlx::query_as::<_, PrefixLease>(
+            "SELECT id, user_hash, prefix::text, start_time, end_time, revoked_at, created_at, updated_at
+             FROM prefix_leases
+             WHERE user_hash = $1 AND prefix = $2::cidr AND end_time > NOW() AND revoked_at IS NULL",
+        )
+        .bind(user_hash)
+        .bind(prefix.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(lease)
+    }
+
     /// Clean up expired leases (optional maintenance task)
     pub async fn cleanup_expired_leases(&self) -> Result<u64, sqlx::Error> {
         let result =

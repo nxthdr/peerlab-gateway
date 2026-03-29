@@ -4,6 +4,7 @@ pub mod database;
 pub mod jwt;
 pub mod pool_asns;
 pub mod pool_prefixes;
+pub mod securebit;
 
 use axum::{
     Router,
@@ -26,6 +27,7 @@ use agent::AgentStore;
 use database::Database;
 use pool_asns::AsnPool;
 use pool_prefixes::PrefixPool;
+use securebit::SecurebitClient;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -40,6 +42,7 @@ pub struct AppState {
     pub auth0_m2m_app_id: Option<String>,
     pub auth0_m2m_app_secret: Option<String>,
     pub bypass_jwt_validation: bool,
+    pub securebit: Option<SecurebitClient>,
 }
 
 // Client-facing API (requires JWT authentication)
@@ -51,6 +54,10 @@ pub fn create_client_app(state: AppState) -> Router {
         .route(
             "/user/prefix/{prefix}",
             axum::routing::delete(revoke_prefix),
+        )
+        .route(
+            "/user/prefix/{prefix}/rpki",
+            axum::routing::put(set_prefix_rpki),
         )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -135,6 +142,7 @@ struct PrefixLeaseResponse {
     prefix: String,
     start_time: String,
     end_time: String,
+    rpki_enabled: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -148,6 +156,19 @@ struct RequestPrefixResponse {
     prefix: String,
     start_time: String,
     end_time: String,
+    rpki_enabled: bool,
+    message: String,
+}
+
+#[derive(serde::Deserialize)]
+struct SetRpkiRequest {
+    enabled: bool,
+}
+
+#[derive(serde::Serialize)]
+struct SetRpkiResponse {
+    prefix: String,
+    rpki_enabled: bool,
     message: String,
 }
 
@@ -176,12 +197,29 @@ async fn get_user_info(
 
     match state.database.get_user_info(&user_hash).await {
         Ok(Some((asn_mapping, leases))) => {
+            // Fetch current ROA state from Securebit (if configured)
+            let roa_prefixes: Vec<String> = if let Some(ref securebit) = state.securebit {
+                match securebit.list_roas().await {
+                    Ok(roas) => roas.into_iter().map(|r| r.prefix).collect(),
+                    Err(err) => {
+                        warn!("Failed to fetch ROA list from Securebit: {}", err);
+                        Vec::new()
+                    }
+                }
+            } else {
+                Vec::new()
+            };
+
             let active_leases = leases
                 .into_iter()
-                .map(|lease| PrefixLeaseResponse {
-                    prefix: lease.prefix,
-                    start_time: lease.start_time.to_rfc3339(),
-                    end_time: lease.end_time.to_rfc3339(),
+                .map(|lease| {
+                    let rpki_enabled = roa_prefixes.iter().any(|p| p == &lease.prefix);
+                    PrefixLeaseResponse {
+                        prefix: lease.prefix,
+                        start_time: lease.start_time.to_rfc3339(),
+                        end_time: lease.end_time.to_rfc3339(),
+                        rpki_enabled,
+                    }
                 })
                 .collect();
 
@@ -313,6 +351,16 @@ async fn revoke_prefix(
             ));
         }
     };
+
+    // Ensure RPKI ROA is enabled before revoking (for RPKI stability)
+    if let Some(ref securebit) = state.securebit {
+        if let Err(err) = securebit.ensure_roa(&prefix).await {
+            warn!(
+                "Failed to ensure RPKI ROA for {} before revocation: {}",
+                prefix, err
+            );
+        }
+    }
 
     // Delete the prefix lease
     match state
@@ -460,10 +508,25 @@ async fn request_prefix(
                 "Created prefix lease {} for user {} until {}",
                 lease.prefix, user_hash, lease.end_time
             );
+
+            // Add RPKI ROA for the leased prefix
+            let rpki_enabled = if let Some(ref securebit) = state.securebit {
+                match securebit.add_roa(&lease.prefix).await {
+                    Ok(_) => true,
+                    Err(err) => {
+                        warn!("Failed to add RPKI ROA for {}: {}", lease.prefix, err);
+                        false
+                    }
+                }
+            } else {
+                false
+            };
+
             Ok(Json(RequestPrefixResponse {
                 prefix: lease.prefix,
                 start_time: lease.start_time.to_rfc3339(),
                 end_time: lease.end_time.to_rfc3339(),
+                rpki_enabled,
                 message: "Prefix leased successfully".to_string(),
             }))
         }
@@ -474,6 +537,137 @@ async fn request_prefix(
                 Json(serde_json::json!({
                     "error": 500,
                     "message": "Failed to create prefix lease"
+                })),
+            ))
+        }
+    }
+}
+
+/// Enable or disable RPKI ROA for a leased prefix
+async fn set_prefix_rpki(
+    Extension(auth_info): Extension<jwt::AuthInfo>,
+    State(state): State<AppState>,
+    axum::extract::Path(prefix): axum::extract::Path<String>,
+    Json(request): Json<SetRpkiRequest>,
+) -> Result<Json<SetRpkiResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let user_hash = hash_user_identifier(&auth_info.sub);
+
+    let prefix_net = match Ipv6Net::from_str(&prefix) {
+        Ok(p) => p,
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": 400,
+                    "message": "Invalid prefix format"
+                })),
+            ));
+        }
+    };
+
+    // Verify the user has an active lease for this prefix
+    match state
+        .database
+        .get_active_prefix_lease(&user_hash, &prefix_net)
+        .await
+    {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "error": 404,
+                    "message": "Active prefix lease not found"
+                })),
+            ));
+        }
+        Err(err) => {
+            error!("Failed to get prefix lease: {}", err);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": 500,
+                    "message": "Failed to check prefix lease"
+                })),
+            ));
+        }
+    }
+
+    let securebit = match state.securebit {
+        Some(ref s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": 503,
+                    "message": "RPKI management is not configured"
+                })),
+            ));
+        }
+    };
+
+    // Check current state from Securebit (source of truth)
+    let currently_enabled = match securebit.has_roa(&prefix).await {
+        Ok(v) => v,
+        Err(err) => {
+            error!("Failed to check RPKI ROA state for {}: {}", prefix, err);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": 500,
+                    "message": "Failed to check RPKI ROA state"
+                })),
+            ));
+        }
+    };
+
+    if currently_enabled == request.enabled {
+        return Ok(Json(SetRpkiResponse {
+            prefix,
+            rpki_enabled: currently_enabled,
+            message: format!(
+                "RPKI ROA already {}",
+                if request.enabled { "enabled" } else { "disabled" }
+            ),
+        }));
+    }
+
+    // Apply the change via Securebit
+    let result = if request.enabled {
+        securebit.add_roa(&prefix).await
+    } else {
+        securebit.remove_roa(&prefix).await
+    };
+
+    match result {
+        Ok(_) => {
+            debug!(
+                "RPKI ROA {} for prefix {} by user {}",
+                if request.enabled { "enabled" } else { "disabled" },
+                prefix,
+                user_hash
+            );
+            Ok(Json(SetRpkiResponse {
+                prefix,
+                rpki_enabled: request.enabled,
+                message: format!(
+                    "RPKI ROA {}",
+                    if request.enabled { "enabled" } else { "disabled" }
+                ),
+            }))
+        }
+        Err(err) => {
+            error!(
+                "Failed to {} RPKI ROA for {}: {}",
+                if request.enabled { "add" } else { "remove" },
+                prefix,
+                err
+            );
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": 500,
+                    "message": "Failed to update RPKI ROA"
                 })),
             ))
         }

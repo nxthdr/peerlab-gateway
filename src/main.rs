@@ -12,6 +12,7 @@ use peerlab_gateway::{
     database::{Database, DatabaseConfig},
     pool_asns::AsnPool,
     pool_prefixes::PrefixPool,
+    securebit::SecurebitClient,
 };
 
 /// Command line arguments for the gateway
@@ -68,6 +69,18 @@ pub struct Cli {
     /// Auth0 M2M App Secret for Management API access
     #[arg(long = "auth0-m2m-app-secret")]
     pub auth0_m2m_app_secret: Option<String>,
+
+    /// Securebit email for RPKI ROA management
+    #[arg(long = "securebit-email")]
+    pub securebit_email: Option<String>,
+
+    /// Securebit password for RPKI ROA management
+    #[arg(long = "securebit-password")]
+    pub securebit_password: Option<String>,
+
+    /// Origin ASN for RPKI ROA entries (e.g. 215011)
+    #[arg(long = "securebit-origin-asn")]
+    pub securebit_origin_asn: Option<i32>,
 
     /// Metrics listen address
     #[arg(long = "metrics-address", default_value = "0.0.0.0:9090")]
@@ -151,6 +164,23 @@ async fn main() -> anyhow::Result<()> {
         warn!("Auth0 Management API is not fully configured - email retrieval will be disabled");
     }
 
+    // Create Securebit client for RPKI ROA management
+    let securebit = if let (Some(email), Some(password), Some(origin_asn)) = (
+        &cli.securebit_email,
+        &cli.securebit_password,
+        cli.securebit_origin_asn,
+    ) {
+        info!("Securebit RPKI management is configured (origin ASN: AS{origin_asn})");
+        Some(SecurebitClient::new(
+            email.clone(),
+            password.clone(),
+            origin_asn,
+        ))
+    } else {
+        warn!("Securebit RPKI management is not configured - ROA automation will be disabled");
+        None
+    };
+
     // Create ASN pool
     let asn_pool = AsnPool::new(cli.asn_pool_start, cli.asn_pool_end);
 
@@ -214,6 +244,7 @@ async fn main() -> anyhow::Result<()> {
         auth0_m2m_app_id: cli.auth0_m2m_app_id.clone(),
         auth0_m2m_app_secret: cli.auth0_m2m_app_secret.clone(),
         bypass_jwt_validation: cli.bypass_jwt,
+        securebit,
     };
 
     if cli.bypass_jwt {
