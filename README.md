@@ -9,6 +9,7 @@ A Rust-based gateway service for managing IPv6 prefix leases and ASN assignments
 - **JWT Authentication**: Secure API access using Auth0 JWT tokens
 - **Agent Authentication**: Service API endpoints protected with Bearer token authentication
 - **Email Retrieval**: On-demand email fetching from Auth0 Management API (no email storage)
+- **RPKI ROA Management**: Automatic ROA creation/removal via Securebit for leased prefixes
 - **PostgreSQL Storage**: Persistent storage of user mappings and lease information
 - **Service API**: Authenticated endpoints for downstream services to query user mappings
 
@@ -35,7 +36,8 @@ Get user information including ASN and active prefix leases.
     {
       "prefix": "2001:db8:1000::/48",
       "start_time": "2025-01-01T00:00:00Z",
-      "end_time": "2025-01-01T01:00:00Z"
+      "end_time": "2025-01-01T01:00:00Z",
+      "rpki_enabled": true
     }
   ]
 }
@@ -71,6 +73,28 @@ Request a time-limited IPv6 /48 prefix lease.
   "start_time": "2025-01-01T00:00:00Z",
   "end_time": "2025-01-01T01:00:00Z",
   "message": "Prefix leased successfully"
+}
+```
+
+#### `DELETE /api/user/prefix/{prefix}`
+Revoke an active prefix lease. Automatically ensures RPKI ROA is re-enabled for the prefix before releasing it.
+
+#### `PUT /api/user/prefix/{prefix}/rpki`
+Enable or disable RPKI ROA for a leased prefix. The RPKI state is managed via Securebit and is queried on-demand (Securebit is the source of truth).
+
+**Request:**
+```json
+{
+  "enabled": true
+}
+```
+
+**Response:**
+```json
+{
+  "prefix": "2001:db8:1000::/48",
+  "rpki_enabled": true,
+  "message": "RPKI ROA enabled for prefix"
 }
 ```
 
@@ -142,6 +166,13 @@ Get mapping for a specific user.
 - `--auth0-m2m-app-secret`: Auth0 M2M application secret for Management API access
 
 **Note:** Email retrieval is optional. If M2M credentials are not provided, the `email` field in service API responses will be `null`.
+
+#### RPKI ROA Management (Optional)
+- `--securebit-email`: Securebit account email
+- `--securebit-password`: Securebit account password
+- `--securebit-origin-asn`: Origin ASN for ROA entries (e.g., `215011`)
+
+**Note:** RPKI management is optional. If Securebit credentials are not provided, ROA operations are skipped and `rpki_enabled` will always be `false` in API responses.
 
 ### Prefix Pool File
 
