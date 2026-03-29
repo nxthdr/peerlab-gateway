@@ -1,6 +1,9 @@
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use scraper::{Html, Selector};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 const BASE_URL: &str = "https://www.securebit.cloud";
@@ -8,11 +11,21 @@ const RPKI_URL: &str = "https://www.securebit.cloud/manage/internet/resources";
 const API_URL: &str = "https://www.securebit.cloud/interface.exe?";
 const USER_AGENT: &str = "Mozilla/5.0 (compatible; peerlab-gateway/0.1)";
 
+/// How long the ROA cache is considered fresh before re-fetching from Securebit.
+const CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
+
+#[derive(Clone)]
+struct RoaCache {
+    roas: Vec<Roa>,
+    fetched_at: Instant,
+}
+
 #[derive(Clone)]
 pub struct SecurebitClient {
     email: String,
     password: String,
     origin_asn: String,
+    cache: Arc<RwLock<Option<RoaCache>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +43,7 @@ impl SecurebitClient {
             email,
             password,
             origin_asn,
+            cache: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -184,13 +198,43 @@ impl SecurebitClient {
         Ok(body)
     }
 
-    // -- Public API --
+    // -- Cache helpers --
 
-    /// List all current ROAs from Securebit.
-    pub async fn list_roas(&self) -> Result<Vec<Roa>> {
+    /// Update the cache with a fresh ROA list.
+    async fn update_cache(&self, roas: Vec<Roa>) {
+        let mut guard = self.cache.write().await;
+        *guard = Some(RoaCache {
+            roas,
+            fetched_at: Instant::now(),
+        });
+    }
+
+    /// Fetch ROAs from Securebit and update the cache.
+    async fn fetch_and_cache(&self) -> Result<Vec<Roa>> {
         let http = self.login().await?;
         let html = self.fetch_rpki_page(&http).await?;
-        Ok(Self::parse_roas(&html))
+        let roas = Self::parse_roas(&html);
+        self.update_cache(roas.clone()).await;
+        Ok(roas)
+    }
+
+    // -- Public API --
+
+    /// List all current ROAs. Serves from cache if fresh, otherwise fetches from Securebit.
+    pub async fn list_roas(&self) -> Result<Vec<Roa>> {
+        // Check cache first
+        {
+            let guard = self.cache.read().await;
+            if let Some(cached) = guard.as_ref() {
+                if cached.fetched_at.elapsed() < CACHE_TTL {
+                    debug!("Serving ROA list from cache");
+                    return Ok(cached.roas.clone());
+                }
+            }
+        }
+
+        debug!("ROA cache miss or expired, fetching from Securebit");
+        self.fetch_and_cache().await
     }
 
     /// Add a ROA for the given prefix with the configured origin ASN.
@@ -205,6 +249,7 @@ impl SecurebitClient {
             .any(|r| r.prefix == prefix && r.asn == self.origin_asn)
         {
             info!("ROA already exists for {prefix} {}", self.origin_asn);
+            self.update_cache(existing).await;
             return Ok(false);
         }
 
@@ -217,10 +262,13 @@ impl SecurebitClient {
         );
         Self::save_row(&http, "c", &self.origin_asn, prefix, &add_row_id).await?;
 
-        // Verify
+        // Verify and update cache
         let html = self.fetch_rpki_page(&http).await?;
         let roas = Self::parse_roas(&html);
-        if roas.iter().any(|r| r.prefix == prefix) {
+        let success = roas.iter().any(|r| r.prefix == prefix);
+        self.update_cache(roas).await;
+
+        if success {
             info!("ROA added successfully for {prefix}");
             Ok(true)
         } else {
@@ -240,6 +288,7 @@ impl SecurebitClient {
             Some(roa) => roa.clone(),
             None => {
                 info!("ROA not found for {prefix}, nothing to remove");
+                self.update_cache(existing).await;
                 return Ok(false);
             }
         };
@@ -247,10 +296,13 @@ impl SecurebitClient {
         info!("Removing ROA: {} {prefix}", target.asn);
         Self::save_row(&http, "d", &target.asn, prefix, &target.row_id).await?;
 
-        // Verify
+        // Verify and update cache
         let html = self.fetch_rpki_page(&http).await?;
         let roas = Self::parse_roas(&html);
-        if roas.iter().any(|r| r.prefix == prefix) {
+        let still_present = roas.iter().any(|r| r.prefix == prefix);
+        self.update_cache(roas).await;
+
+        if still_present {
             warn!("ROA may not have been removed for {prefix}");
             bail!("ROA remove verification failed for {prefix}");
         } else {
@@ -259,11 +311,9 @@ impl SecurebitClient {
         }
     }
 
-    /// Check if a ROA exists for the given prefix.
+    /// Check if a ROA exists for the given prefix (uses cache).
     pub async fn has_roa(&self, prefix: &str) -> Result<bool> {
-        let http = self.login().await?;
-        let html = self.fetch_rpki_page(&http).await?;
-        let roas = Self::parse_roas(&html);
+        let roas = self.list_roas().await?;
         Ok(roas.iter().any(|r| r.prefix == prefix))
     }
 
