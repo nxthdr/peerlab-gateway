@@ -230,7 +230,6 @@ impl SecurebitClient {
 
     /// List all current ROAs. Serves from cache if fresh, otherwise fetches from Securebit.
     pub async fn list_roas(&self) -> Result<Vec<Roa>> {
-        // Check cache first
         {
             let guard = self.cache.read().await;
             if let Some(cached) = guard.as_ref() {

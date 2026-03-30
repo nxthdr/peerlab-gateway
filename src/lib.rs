@@ -197,14 +197,18 @@ async fn get_user_info(
 
     match state.database.get_user_info(&user_hash).await {
         Ok(Some((asn_mapping, leases))) => {
-            // Fetch current ROA state from Securebit (if configured)
-            let roa_prefixes: Vec<String> = if let Some(ref securebit) = state.securebit {
-                match securebit.list_roas().await {
-                    Ok(roas) => roas.into_iter().map(|r| r.prefix).collect(),
-                    Err(err) => {
-                        warn!("Failed to fetch ROA list from Securebit: {}", err);
-                        Vec::new()
+            // Fetch current ROA state from Securebit only when the user has active leases
+            let roa_prefixes: Vec<String> = if !leases.is_empty() {
+                if let Some(ref securebit) = state.securebit {
+                    match securebit.list_roas().await {
+                        Ok(roas) => roas.into_iter().map(|r| r.prefix).collect(),
+                        Err(err) => {
+                            warn!("Failed to fetch ROA list from Securebit: {}", err);
+                            Vec::new()
+                        }
                     }
+                } else {
+                    Vec::new()
                 }
             } else {
                 Vec::new()
