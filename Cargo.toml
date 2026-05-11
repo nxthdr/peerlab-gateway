@@ -26,7 +26,7 @@ sha2 = "0.11"
 hex = "0.4"
 ipnet = "2.9"
 urlencoding = "2.1"
-scraper = "0.26"
+scraper = "0.27"
 
 [dev-dependencies]
 axum-test = "19.0"
