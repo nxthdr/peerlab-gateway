@@ -20,6 +20,39 @@ jobs:
         cargo check --locked
         cargo test --locked --verbose
 
+  # Apply every migration in order to a throwaway Postgres so a broken migration
+  # fails CI instead of crash-looping the gateway on deploy. The unit tests above
+  # use the in-memory mock DB and never exercise the real SQL/migrations.
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: peerlab_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Apply migrations to a fresh Postgres
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Glob expansion is already sorted lexicographically (matches the
+          # NNNNN_ migration naming). --single-transaction wraps each file in a
+          # transaction: do NOT add a migration that must run outside one (e.g.
+          # CREATE INDEX CONCURRENTLY) without revisiting this.
+          for f in migrations/*.sql; do
+            echo "==> applying $f"
+            psql -h localhost -U postgres -d peerlab_ci -v ON_ERROR_STOP=1 --single-transaction -f "$f"
+          done
+
   docker:
     strategy:
       fail-fast: false
@@ -32,7 +65,7 @@ jobs:
       id-token: write
 
     runs-on: ${{ matrix.os.name }}
-    needs: [ tests ]
+    needs: [ tests, migrations ]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
