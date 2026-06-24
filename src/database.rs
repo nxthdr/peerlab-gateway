@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use ipnet::Ipv6Net;
+use sqlx::postgres::PgConnectOptions;
 use sqlx::PgPool;
 use tracing::debug;
 use uuid::Uuid;
@@ -43,9 +44,27 @@ pub struct Database {
     pool: PgPool,
 }
 
+/// Build Postgres connection options from a URL, working around a regression in
+/// sqlx 0.9: a bracketed IPv6 literal host (e.g. `postgresql://[2a06:de00:…]:5432/db`)
+/// is stored — and handed to the resolver — with the `[ ]` still attached, so
+/// getaddrinfo fails with "Name or service not known". sqlx 0.8 trimmed the brackets
+/// in `connect_tcp`; 0.9 dropped that, so we trim them here before connecting.
+/// See nxthdr/peerlab-gateway#97 (and the sister regression saimiris-gateway#55).
+fn connect_options(database_url: &str) -> Result<PgConnectOptions, sqlx::Error> {
+    let options: PgConnectOptions = database_url.parse()?;
+    let host = options.get_host();
+    let unbracketed = host.trim_matches(|c| c == '[' || c == ']');
+    if unbracketed.len() == host.len() {
+        Ok(options)
+    } else {
+        let unbracketed = unbracketed.to_string();
+        Ok(options.host(&unbracketed))
+    }
+}
+
 impl Database {
     pub async fn new(config: &DatabaseConfig) -> Result<Self, sqlx::Error> {
-        let pool = PgPool::connect(&config.database_url).await?;
+        let pool = PgPool::connect_with(connect_options(&config.database_url)?).await?;
         Ok(Self { pool })
     }
 
@@ -288,9 +307,27 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    #[tokio::test]
-    async fn test_database_operations() {
-        // This is a placeholder for integration tests
-        // In practice, you would use a test database
+    use super::*;
+
+    // Regression test for #97: a bracketed IPv6 literal host must reach the resolver
+    // without its `[ ]`, otherwise sqlx 0.9 hands `[2a06:…]` to getaddrinfo and the
+    // gateway crash-loops with "Name or service not known". Runs in the normal
+    // `cargo test` job with no database needed.
+    #[test]
+    fn connect_options_strips_brackets_from_ipv6_literal_host() {
+        let opts = connect_options("postgresql://u:p@[2a06:de00:50:cafe:10::116]:5432/peerlab")
+            .expect("parse bracketed IPv6 URL");
+        assert_eq!(opts.get_host(), "2a06:de00:50:cafe:10::116");
+
+        let loopback =
+            connect_options("postgresql://u:p@[::1]:5432/peerlab").expect("parse [::1] URL");
+        assert_eq!(loopback.get_host(), "::1");
+    }
+
+    #[test]
+    fn connect_options_leaves_plain_host_untouched() {
+        let opts = connect_options("postgresql://u:p@db.example.com:5432/peerlab")
+            .expect("parse hostname URL");
+        assert_eq!(opts.get_host(), "db.example.com");
     }
 }
