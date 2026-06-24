@@ -9,7 +9,7 @@ use peerlab_gateway::{
     AppState,
     agent::AgentStore,
     create_app,
-    database::{Database, DatabaseConfig},
+    database::{Database, DatabaseConfig, safe_database_target},
     pool_asns::AsnPool,
     pool_prefixes::PrefixPool,
     securebit::SecurebitClient,
@@ -213,7 +213,10 @@ async fn main() -> anyhow::Result<()> {
     let database_config = DatabaseConfig::new(cli.database_url.clone());
     let database = match Database::new(&database_config).await {
         Ok(db) => {
-            info!("Connected to database: {}", cli.database_url);
+            info!(
+                "Connected to database: {}",
+                safe_database_target(&cli.database_url)
+            );
 
             // Run database migrations automatically
             info!("Running database migrations...");

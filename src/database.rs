@@ -62,6 +62,25 @@ fn connect_options(database_url: &str) -> Result<PgConnectOptions, sqlx::Error> 
     }
 }
 
+/// Render a log-safe description of the database target — host, port, and database
+/// name only — so the password embedded in the connection URL is never logged.
+/// Falls back to a placeholder if the URL can't be parsed.
+pub fn safe_database_target(database_url: &str) -> String {
+    let Ok(options) = connect_options(database_url) else {
+        return "<unparseable database url>".to_string();
+    };
+    let host = options.get_host();
+    let host = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    match options.get_database() {
+        Some(db) => format!("{host}:{}/{db}", options.get_port()),
+        None => format!("{host}:{}", options.get_port()),
+    }
+}
+
 impl Database {
     pub async fn new(config: &DatabaseConfig) -> Result<Self, sqlx::Error> {
         let pool = PgPool::connect_with(connect_options(&config.database_url)?).await?;
@@ -329,5 +348,23 @@ mod tests {
         let opts = connect_options("postgresql://u:p@db.example.com:5432/peerlab")
             .expect("parse hostname URL");
         assert_eq!(opts.get_host(), "db.example.com");
+    }
+
+    // The startup log line must never carry the password embedded in the URL.
+    #[test]
+    fn safe_database_target_omits_password() {
+        let target = safe_database_target(
+            "postgresql://[2a06:de00:50:cafe:10::116]:5432/peerlab_gateway?user=postgres&password=hunter2&sslmode=disable",
+        );
+        assert!(!target.contains("hunter2"), "password leaked in {target}");
+        assert!(!target.contains("password"), "credential leaked in {target}");
+        assert_eq!(target, "[2a06:de00:50:cafe:10::116]:5432/peerlab_gateway");
+    }
+
+    #[test]
+    fn safe_database_target_handles_plain_host() {
+        let target = safe_database_target("postgresql://u:secret@db.example.com:5432/peerlab");
+        assert!(!target.contains("secret"), "password leaked in {target}");
+        assert_eq!(target, "db.example.com:5432/peerlab");
     }
 }
