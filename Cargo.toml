@@ -29,5 +29,5 @@ urlencoding = "2.1"
 scraper = "0.27"
 
 [dev-dependencies]
-axum-test = "20.0"
+axum-test = "21.0"
 tempfile = "3.0"
