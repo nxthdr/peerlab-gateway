@@ -1,6 +1,6 @@
 services:
   peerlab-postgres:
-    image: postgres:18
+    image: postgres:19
     container_name: peerlab-postgres
     environment:
       POSTGRES_DB: peerlab_gateway
